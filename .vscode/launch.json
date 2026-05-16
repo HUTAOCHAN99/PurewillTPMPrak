@@ -1,0 +1,10 @@
+{
+    "configurations": [
+        {
+            "name": "Flutter (lib\\ui\\habit-tracker\\widget\\community\\chat_bubble_comment.dart)",
+            "type": "dart",
+            "request": "launch",
+            "program": "lib\\ui\\habit-tracker\\widget\\community\\chat_bubble_comment.dart"
+        }
+    ]
+}
