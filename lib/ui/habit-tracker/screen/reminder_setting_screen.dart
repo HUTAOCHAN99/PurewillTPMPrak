@@ -1,8 +1,10 @@
+// lib/ui/habit-tracker/screen/reminder_setting_screen.dart
 import 'dart:async';
 
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:purewill/data/services/local_notification_service.dart';
+import 'package:purewill/data/services/reminder_sync_service.dart';
 import 'package:purewill/domain/model/habit_model.dart';
 import 'package:purewill/data/repository/reminder_setting_repository.dart';
 import 'package:purewill/domain/model/reminder_setting_model.dart';
@@ -12,11 +14,13 @@ import '../controller/reminder_setting_controller.dart';
 class ReminderSettingScreen extends ConsumerStatefulWidget {
   final HabitModel habit;
   final ReminderSettingModel? reminderSetting;
+  
   const ReminderSettingScreen({
     super.key,
     required this.habit,
     this.reminderSetting,
   });
+  
   @override
   ConsumerState<ReminderSettingScreen> createState() =>
       _ReminderSettingScreenState();
@@ -25,16 +29,12 @@ class ReminderSettingScreen extends ConsumerStatefulWidget {
 class _ReminderSettingScreenState extends ConsumerState<ReminderSettingScreen> {
   late ReminderSettingController _controller;
   final GlobalKey<ScaffoldState> _scaffoldKey = GlobalKey<ScaffoldState>();
-
-  // Variabel untuk live clock
-  DateTime _currentTime = DateTime.now();
-  late Timer _timer;
+  bool _isSaving = false;
 
   @override
   void initState() {
     super.initState();
     _initializeController();
-    _startLiveClock();
   }
 
   void _initializeController() {
@@ -49,85 +49,261 @@ class _ReminderSettingScreenState extends ConsumerState<ReminderSettingScreen> {
     if (mounted) setState(() {});
   }
 
-  void _startLiveClock() {
-    _timer = Timer.periodic(const Duration(seconds: 1), (timer) {
-      if (mounted) {
-        setState(() {
-          _currentTime = DateTime.now();
-        });
-      }
-    });
-  }
-
-  String _formatTime(DateTime dateTime) {
-    return '${dateTime.hour.toString().padLeft(2, '0')}:${dateTime.minute.toString().padLeft(2, '0')}:${dateTime.second.toString().padLeft(2, '0')}';
-  }
-
-  String _formatDate(DateTime dateTime) {
-    return '${dateTime.day}/${dateTime.month}/${dateTime.year}';
-  }
-
   @override
   void dispose() {
     _controller.removeListener(_onControllerUpdate);
-    _timer.cancel();
     super.dispose();
   }
 
-  void _showSnackBar(String message, {bool isError = false}) {
+  void _showSnackBar(String message, {bool isError = false, bool isSuccess = false}) {
+    if (!mounted) return;
+    
+    Color backgroundColor;
+    IconData icon;
+    
+    if (isError) {
+      backgroundColor = Colors.red.shade700;
+      icon = Icons.error_outline;
+    } else if (isSuccess) {
+      backgroundColor = Colors.green.shade700;
+      icon = Icons.check_circle_outline;
+    } else {
+      backgroundColor = Colors.blue.shade700;
+      icon = Icons.info_outline;
+    }
+    
     ScaffoldMessenger.of(context).showSnackBar(
       SnackBar(
-        content: Text(message),
-        backgroundColor: isError ? Colors.red : Colors.green,
+        content: Row(
+          children: [
+            Icon(icon, color: Colors.white, size: 20),
+            const SizedBox(width: 12),
+            Expanded(
+              child: Text(
+                message,
+                style: const TextStyle(fontSize: 14),
+              ),
+            ),
+          ],
+        ),
+        backgroundColor: backgroundColor,
         duration: const Duration(seconds: 3),
         behavior: SnackBarBehavior.floating,
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+        margin: const EdgeInsets.all(12),
       ),
     );
   }
 
   Future<void> _saveSettings() async {
+    if (_isSaving) return;
+    
+    setState(() {
+      _isSaving = true;
+    });
+    
+    _showSnackBar('Saving reminder settings...');
+    
     try {
-      await _controller.saveSettings();
-      _showSnackBar('Reminder settings saved successfully!');
+      final result = await _controller.saveSettings();
+      
+      if (mounted) {
+        if (result['success'] == true) {
+          _showSnackBar(result['message'], isSuccess: true);
+          await Future.delayed(const Duration(seconds: 1));
+          await _checkPendingNotifications();
+        } else {
+          _showSnackBar(result['message'] ?? 'Failed to save settings', isError: true);
+        }
+      }
     } catch (e) {
-      _showSnackBar('Failed to save settings: $e', isError: true);
+      if (mounted) {
+        _showSnackBar('Error: $e', isError: true);
+      }
+    } finally {
+      if (mounted) {
+        setState(() {
+          _isSaving = false;
+        });
+      }
     }
   }
 
   Future<void> _testNotification() async {
+    _showSnackBar('Sending test notification...');
+    
+    final result = await _controller.testNotification();
+    
+    if (mounted) {
+      if (result['success'] == true) {
+        _showSnackBar('Test notification sent! Check your notification panel.', isSuccess: true);
+      } else {
+        _showSnackBar('Test failed: ${result['message']}', isError: true);
+      }
+    }
+  }
+
+  Future<void> _testImmediateNotification() async {
+    _showSnackBar('Sending immediate test notification...');
+    
     try {
-      await _controller.testNotification();
-      _showSnackBar('Test notification sent!');
+      final notificationService = LocalNotificationService();
+      final result = await notificationService.showImmediateTestNotification(
+        title: 'Test: ${widget.habit.name}',
+        body: 'This is an immediate test notification',
+        id: DateTime.now().millisecondsSinceEpoch % 100000,
+      );
+      
+      if (mounted) {
+        if (result['success'] == true) {
+          _showSnackBar('Immediate test notification sent!', isSuccess: true);
+        } else {
+          _showSnackBar('Immediate test failed: ${result['message']}', isError: true);
+        }
+      }
     } catch (e) {
-      _showSnackBar('Failed to send test notification: $e', isError: true);
+      if (mounted) {
+        _showSnackBar('Error: $e', isError: true);
+      }
+    }
+  }
+
+  Future<void> _testOneMinuteNotification() async {
+    _showSnackBar('Scheduling test notification in 1 minute...');
+    
+    try {
+      final notificationService = LocalNotificationService();
+      final now = DateTime.now();
+      final oneMinuteLater = TimeOfDay(
+        hour: now.add(const Duration(minutes: 1)).hour,
+        minute: now.add(const Duration(minutes: 1)).minute,
+      );
+      
+      final result = await notificationService.scheduleHabitReminder(
+        id: 8888,
+        title: '1-Minute Test: ${widget.habit.name}',
+        body: 'This notification should appear in 1 minute',
+        time: oneMinuteLater,
+        habitId: widget.habit.id.toString(),
+        repeatDaily: false,
+        enableSound: true,
+        enableVibration: true,
+      );
+      
+      if (mounted) {
+        if (result['success'] == true) {
+          _showSnackBar('Test notification scheduled for ${_formatTimeOfDay(oneMinuteLater)}', isSuccess: true);
+        } else {
+          _showSnackBar('Test scheduling failed: ${result['message']}', isError: true);
+        }
+      }
+    } catch (e) {
+      if (mounted) {
+        _showSnackBar('Error: $e', isError: true);
+      }
+    }
+  }
+
+  Future<void> _testForegroundNotification() async {
+    _showSnackBar('Sending foreground test...');
+    
+    final result = await _controller.testForegroundNotification();
+    
+    if (mounted) {
+      if (result['success'] == true) {
+        _showSnackBar('Foreground test notification sent!', isSuccess: true);
+      } else {
+        _showSnackBar('Foreground test failed: ${result['message']}', isError: true);
+      }
     }
   }
 
   Future<void> _checkPendingNotifications() async {
+    _showSnackBar('Checking pending notifications...');
+    await _controller.checkPendingNotifications();
+    if (mounted) {
+      _showSnackBar('Check completed. See console for details.', isSuccess: true);
+    }
+  }
+
+  Future<void> _forceRescheduleReminders() async {
+    _showSnackBar('Force rescheduling all reminders...');
+    
     try {
-      await _controller.checkPendingNotifications();
-      _showSnackBar('Pending notifications checked - see console for details');
+      final reminderSyncService = ReminderSyncService();
+      await reminderSyncService.rescheduleAllReminders();
+      if (mounted) {
+        _showSnackBar('All reminders rescheduled successfully!', isSuccess: true);
+        await _checkPendingNotifications();
+      }
     } catch (e) {
-      _showSnackBar('Failed to check notifications: $e', isError: true);
+      if (mounted) {
+        _showSnackBar('Reschedule failed: $e', isError: true);
+      }
     }
   }
 
   Future<void> _checkPermissions() async {
-    try {
-      await _controller.checkPermissions();
-      _showSnackBar('Permission check completed - see console for details');
-    } catch (e) {
-      _showSnackBar('Failed to check permissions: $e', isError: true);
+    _showSnackBar('Checking permissions...');
+    
+    final result = await _controller.checkPermissions();
+    
+    if (mounted) {
+      if (result['success'] == true) {
+        _showSnackBar(result['message'], isSuccess: true);
+      } else {
+        _showSnackBar(result['message'], isError: true);
+      }
     }
   }
 
   Future<void> _resetReminderData() async {
-    try {
-      await _controller.resetReminderData();
-      _showSnackBar('Reminder data reset successfully');
-    } catch (e) {
-      _showSnackBar('Failed to reset data: $e', isError: true);
+    final confirmed = await showDialog<bool>(
+      context: context,
+      builder: (context) => AlertDialog(
+        title: const Text('Reset Reminder Data'),
+        content: const Text(
+          'Are you sure you want to reset all reminder data for this habit? '
+          'This will delete all saved reminder settings and cancel scheduled notifications.',
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(context, false),
+            child: const Text('Cancel'),
+          ),
+          TextButton(
+            onPressed: () => Navigator.pop(context, true),
+            style: TextButton.styleFrom(foregroundColor: Colors.red),
+            child: const Text('Reset'),
+          ),
+        ],
+      ),
+    );
+    
+    if (confirmed == true) {
+      _showSnackBar('Resetting reminder data...');
+      try {
+        await _controller.resetReminderData();
+        if (mounted) {
+          _showSnackBar('Reminder data reset successfully', isSuccess: true);
+        }
+      } catch (e) {
+        if (mounted) {
+          _showSnackBar('Reset failed: $e', isError: true);
+        }
+      }
     }
+  }
+
+  void _showDebugInfo() {
+    _controller.debugCurrentState();
+    _showSnackBar('Debug info printed to console', isSuccess: true);
+  }
+
+  String _formatTimeOfDay(TimeOfDay time) {
+    final hour = time.hour.toString().padLeft(2, '0');
+    final minute = time.minute.toString().padLeft(2, '0');
+    return '$hour:$minute';
   }
 
   @override
@@ -143,14 +319,7 @@ class _ReminderSettingScreenState extends ConsumerState<ReminderSettingScreen> {
         foregroundColor: Colors.blue[800],
         elevation: 0,
         actions: [
-          // Debug button
-          IconButton(
-            icon: const Icon(Icons.bug_report_outlined),
-            onPressed: _controller.debugCurrentState,
-            tooltip: 'Debug Current State',
-          ),
-          // Save button di appbar jika ada perubahan
-          if (_controller.hasChanges && !_controller.isLoading)
+          if (_controller.hasChanges && !_controller.isLoading && !_isSaving)
             TextButton(
               onPressed: _saveSettings,
               child: const Text(
@@ -161,6 +330,41 @@ class _ReminderSettingScreenState extends ConsumerState<ReminderSettingScreen> {
                 ),
               ),
             ),
+          PopupMenuButton<String>(
+            icon: const Icon(Icons.more_vert, color: Colors.blue),
+            onSelected: (value) {
+              switch (value) {
+                case 'debug':
+                  _showDebugInfo();
+                  break;
+                case 'reset':
+                  _resetReminderData();
+                  break;
+              }
+            },
+            itemBuilder: (context) => [
+              const PopupMenuItem(
+                value: 'debug',
+                child: Row(
+                  children: [
+                    Icon(Icons.bug_report, size: 20),
+                    SizedBox(width: 12),
+                    Text('Debug Info'),
+                  ],
+                ),
+              ),
+              const PopupMenuItem(
+                value: 'reset',
+                child: Row(
+                  children: [
+                    Icon(Icons.restart_alt, size: 20, color: Colors.red),
+                    SizedBox(width: 12),
+                    Text('Reset Data', style: TextStyle(color: Colors.red)),
+                  ],
+                ),
+              ),
+            ],
+          ),
         ],
       ),
       body: _controller.isLoading ? const _LoadingState() : _buildContent(),
@@ -173,263 +377,30 @@ class _ReminderSettingScreenState extends ConsumerState<ReminderSettingScreen> {
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          // Live Clock Debug Section - DITAMBAHKAN
-          _buildLiveClockSection(),
-
-          const SizedBox(height: 16),
-
-          // Header Info
           _buildHeaderSection(),
-
           const SizedBox(height: 24),
-
-          // Main Reminder Settings
           _buildMainSettingsSection(),
-
           const SizedBox(height: 24),
-
-          // Advanced Settings
           _buildAdvancedSettingsSection(),
-
           const SizedBox(height: 24),
-
-          // Testing Tools
           _buildTestingToolsSection(),
-
+          const SizedBox(height: 24),
+          _buildDebugSection(),
           const SizedBox(height: 32),
-
-          // Save Button
           _buildSaveButton(),
-
           const SizedBox(height: 16),
         ],
       ),
     );
-  }
-
-  // WIDGET BARU: Live Clock Section
-  Widget _buildLiveClockSection() {
-    return Card(
-      elevation: 2,
-      color: Colors.orange[50],
-      shape: RoundedRectangleBorder(
-        borderRadius: BorderRadius.circular(12),
-        side: BorderSide(color: Colors.orange[300]!, width: 1),
-      ),
-      child: Padding(
-        padding: const EdgeInsets.all(16),
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            // Section Header
-            const Row(
-              children: [
-                Icon(Icons.access_time, size: 20, color: Colors.orange),
-                SizedBox(width: 8),
-                Text(
-                  'Device Time Debug',
-                  style: TextStyle(
-                    fontSize: 16,
-                    fontWeight: FontWeight.bold,
-                    color: Colors.orange,
-                  ),
-                ),
-              ],
-            ),
-
-            const SizedBox(height: 12),
-
-            // Current Time Display
-            Row(
-              mainAxisAlignment: MainAxisAlignment.spaceBetween,
-              children: [
-                Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    const Text(
-                      'Current Device Time:',
-                      style: TextStyle(
-                        fontSize: 14,
-                        fontWeight: FontWeight.w500,
-                        color: Colors.grey,
-                      ),
-                    ),
-                    const SizedBox(height: 4),
-                    Text(
-                      _formatTime(_currentTime),
-                      style: const TextStyle(
-                        fontSize: 24,
-                        fontWeight: FontWeight.bold,
-                        color: Colors.orange,
-                      ),
-                    ),
-                  ],
-                ),
-                Column(
-                  crossAxisAlignment: CrossAxisAlignment.end,
-                  children: [
-                    const Text(
-                      'Date:',
-                      style: TextStyle(
-                        fontSize: 14,
-                        fontWeight: FontWeight.w500,
-                        color: Colors.grey,
-                      ),
-                    ),
-                    const SizedBox(height: 4),
-                    Text(
-                      _formatDate(_currentTime),
-                      style: const TextStyle(
-                        fontSize: 16,
-                        fontWeight: FontWeight.w500,
-                        color: Colors.orange,
-                      ),
-                    ),
-                  ],
-                ),
-              ],
-            ),
-
-            const SizedBox(height: 8),
-
-            // Timezone Info
-            FutureBuilder<String>(
-              future: _getTimezoneInfo(),
-              builder: (context, snapshot) {
-                return Text(
-                  snapshot.data ?? 'Loading timezone info...',
-                  style: const TextStyle(
-                    fontSize: 12,
-                    color: Colors.grey,
-                    fontStyle: FontStyle.italic,
-                  ),
-                );
-              },
-            ),
-
-            const SizedBox(height: 8),
-
-            // Selected Time Comparison
-            _buildTimeComparison(),
-          ],
-        ),
-      ),
-    );
-  }
-
-  // Method untuk mendapatkan info timezone
-  Future<String> _getTimezoneInfo() async {
-    try {
-      final timezoneOffset = _currentTime.timeZoneOffset;
-      final isDST = _currentTime.timeZoneName.contains('DT');
-      final hours = timezoneOffset.inHours;
-      final minutes = timezoneOffset.inMinutes.remainder(60);
-      final sign = hours >= 0 ? '+' : '-';
-
-      return 'Timezone: UTC${sign}${hours.abs().toString().padLeft(2, '0')}:${minutes.toString().padLeft(2, '0')} • ${_currentTime.timeZoneName} ${isDST ? '(Daylight Saving)' : ''}';
-    } catch (e) {
-      return 'Timezone: Unable to determine';
-    }
-  }
-
-  // Widget untuk perbandingan waktu yang dipilih dengan waktu sekarang
-  Widget _buildTimeComparison() {
-    final selectedTime = _controller.selectedTime;
-    final now = _currentTime;
-
-    // Buat DateTime dengan waktu yang dipilih untuk hari ini
-    final selectedDateTime = DateTime(
-      now.year,
-      now.month,
-      now.day,
-      selectedTime.hour,
-      selectedTime.minute,
-      0,
-    );
-
-    final difference = selectedDateTime.difference(now);
-    final isPast = difference.isNegative;
-    final absoluteDifference = difference.abs();
-
-    String statusText;
-    Color statusColor;
-    IconData statusIcon;
-
-    if (isPast) {
-      statusText =
-          'Selected time was ${_formatDuration(absoluteDifference)} ago';
-      statusColor = Colors.red;
-      statusIcon = Icons.schedule;
-    } else {
-      statusText = 'Selected time is in ${_formatDuration(absoluteDifference)}';
-      statusColor = Colors.green;
-      statusIcon = Icons.timer;
-    }
-
-    return Container(
-      padding: const EdgeInsets.all(12),
-      decoration: BoxDecoration(
-        color: statusColor.withOpacity(0.1),
-        borderRadius: BorderRadius.circular(8),
-        border: Border.all(color: statusColor.withOpacity(0.3)),
-      ),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          Row(
-            children: [
-              Icon(statusIcon, color: statusColor, size: 16),
-              const SizedBox(width: 8),
-              Text(
-                'Time Comparison',
-                style: TextStyle(
-                  fontSize: 14,
-                  fontWeight: FontWeight.bold,
-                  color: statusColor,
-                ),
-              ),
-            ],
-          ),
-          const SizedBox(height: 8),
-          Text(
-            statusText,
-            style: TextStyle(
-              fontSize: 12,
-              fontWeight: FontWeight.w500,
-              color: statusColor,
-            ),
-          ),
-          const SizedBox(height: 4),
-          Text(
-            'Selected: ${_controller.getTimeString(selectedTime)}',
-            style: const TextStyle(fontSize: 11, color: Colors.grey),
-          ),
-          Text(
-            'Current: ${_formatTime(now)}',
-            style: const TextStyle(fontSize: 11, color: Colors.grey),
-          ),
-        ],
-      ),
-    );
-  }
-
-  String _formatDuration(Duration duration) {
-    if (duration.inHours > 0) {
-      return '${duration.inHours}h ${duration.inMinutes.remainder(60)}m';
-    } else if (duration.inMinutes > 0) {
-      return '${duration.inMinutes}m ${duration.inSeconds.remainder(60)}s';
-    } else {
-      return '${duration.inSeconds}s';
-    }
   }
 
   Widget _buildHeaderSection() {
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
-        // Habit Info Card
         Card(
           color: Colors.blue[50],
+          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
           child: Padding(
             padding: const EdgeInsets.all(12),
             child: Column(
@@ -455,10 +426,7 @@ class _ReminderSettingScreenState extends ConsumerState<ReminderSettingScreen> {
             ),
           ),
         ),
-
         const SizedBox(height: 16),
-
-        // Status Info
         _buildStatusInfo(),
       ],
     );
@@ -471,28 +439,26 @@ class _ReminderSettingScreenState extends ConsumerState<ReminderSettingScreen> {
 
     String statusText;
     Color statusColor;
+    IconData statusIcon;
 
     if (hasReminder) {
-      statusText = _controller.reminderSetting!.dynamicTimeDisplay;
+      statusText = 'Reminder at ${_controller.reminderSetting!.formattedTime}';
       statusColor = Colors.green;
+      statusIcon = Icons.notifications_active;
     } else {
       statusText = 'No active reminder set';
       statusColor = Colors.grey;
+      statusIcon = Icons.notifications_off;
     }
 
     return Card(
       color: hasReminder ? Colors.green[50] : Colors.grey[100],
+      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
       child: Padding(
         padding: const EdgeInsets.all(12),
         child: Row(
           children: [
-            Icon(
-              hasReminder
-                  ? Icons.notifications_active
-                  : Icons.notifications_off,
-              color: hasReminder ? statusColor : Colors.grey,
-              size: 20,
-            ),
+            Icon(statusIcon, color: hasReminder ? statusColor : Colors.grey, size: 20),
             const SizedBox(width: 8),
             Expanded(
               child: Text(
@@ -518,7 +484,6 @@ class _ReminderSettingScreenState extends ConsumerState<ReminderSettingScreen> {
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
-            // Section Header
             const Row(
               children: [
                 Icon(Icons.settings, size: 20, color: Colors.blue),
@@ -533,20 +498,11 @@ class _ReminderSettingScreenState extends ConsumerState<ReminderSettingScreen> {
                 ),
               ],
             ),
-
             const SizedBox(height: 16),
-
-            // Enable/Disable Toggle
             _buildEnableToggle(),
-
             const SizedBox(height: 16),
-
-            // Time Picker
             _buildTimePicker(),
-
             const SizedBox(height: 16),
-
-            // Snooze Settings
             _buildSnoozeSettings(),
           ],
         ),
@@ -558,6 +514,7 @@ class _ReminderSettingScreenState extends ConsumerState<ReminderSettingScreen> {
     return Card(
       elevation: 1,
       color: Colors.grey[50],
+      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
       child: SwitchListTile(
         title: const Text(
           'Enable Reminder',
@@ -566,7 +523,7 @@ class _ReminderSettingScreenState extends ConsumerState<ReminderSettingScreen> {
         subtitle: const Text('Receive notifications for this habit'),
         value: _controller.pushNotification,
         onChanged: (value) => _controller.setPushNotification(value),
-        activeColor: Colors.blue,
+        activeTrackColor: Colors.blue,
         secondary: const Icon(Icons.notifications, color: Colors.blue),
       ),
     );
@@ -583,6 +540,7 @@ class _ReminderSettingScreenState extends ConsumerState<ReminderSettingScreen> {
         const SizedBox(height: 8),
         Card(
           elevation: 2,
+          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
           child: ListTile(
             leading: const Icon(Icons.access_time, color: Colors.blue),
             title: const Text(
@@ -615,8 +573,6 @@ class _ReminderSettingScreenState extends ConsumerState<ReminderSettingScreen> {
           style: TextStyle(color: Colors.grey, fontSize: 14),
         ),
         const SizedBox(height: 12),
-
-        // Snooze Options
         Column(
           children: [
             for (int i = 0; i < _controller.snoozeOptions.length; i++)
@@ -731,7 +687,6 @@ class _ReminderSettingScreenState extends ConsumerState<ReminderSettingScreen> {
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
-            // Section Header
             const Row(
               children: [
                 Icon(Icons.tune, size: 20, color: Colors.purple),
@@ -746,10 +701,7 @@ class _ReminderSettingScreenState extends ConsumerState<ReminderSettingScreen> {
                 ),
               ],
             ),
-
             const SizedBox(height: 16),
-
-            // Repeat Daily
             _buildAdvancedOption(
               title: 'Repeat Daily',
               subtitle: 'Send reminder every day at the same time',
@@ -757,10 +709,7 @@ class _ReminderSettingScreenState extends ConsumerState<ReminderSettingScreen> {
               onChanged: _controller.setRepeatDaily,
               icon: Icons.repeat,
             ),
-
             const Divider(height: 1),
-
-            // Sound
             _buildAdvancedOption(
               title: 'Sound',
               subtitle: 'Play sound with notification',
@@ -768,10 +717,7 @@ class _ReminderSettingScreenState extends ConsumerState<ReminderSettingScreen> {
               onChanged: _controller.setSoundEnabled,
               icon: Icons.volume_up,
             ),
-
             const Divider(height: 1),
-
-            // Vibration
             _buildAdvancedOption(
               title: 'Vibration',
               subtitle: 'Vibrate device with notification',
@@ -799,7 +745,7 @@ class _ReminderSettingScreenState extends ConsumerState<ReminderSettingScreen> {
       trailing: Switch(
         value: value,
         onChanged: onChanged,
-        activeColor: Colors.purple,
+        activeTrackColor: Colors.purple,
       ),
       contentPadding: EdgeInsets.zero,
     );
@@ -828,23 +774,40 @@ class _ReminderSettingScreenState extends ConsumerState<ReminderSettingScreen> {
                 ),
               ],
             ),
-
             const SizedBox(height: 8),
             const Text(
               'Use these tools to test and debug notifications',
               style: TextStyle(color: Colors.grey, fontSize: 14),
             ),
-
             const SizedBox(height: 16),
-
-            // Test Buttons
             Column(
               children: [
                 _buildTestButton(
                   icon: Icons.notifications_active,
                   label: 'Test Immediate Notification',
+                  color: Colors.red,
+                  onPressed: _testImmediateNotification,
+                ),
+                const SizedBox(height: 8),
+                _buildTestButton(
+                  icon: Icons.timer,
+                  label: 'Test 1-Minute Notification',
+                  color: Colors.orange,
+                  onPressed: _testOneMinuteNotification,
+                ),
+                const SizedBox(height: 8),
+                _buildTestButton(
+                  icon: Icons.notifications_active,
+                  label: 'Test Scheduled Notification',
                   color: Colors.green,
                   onPressed: _testNotification,
+                ),
+                const SizedBox(height: 8),
+                _buildTestButton(
+                  icon: Icons.notifications_active,
+                  label: 'Test Foreground Notification',
+                  color: Colors.teal,
+                  onPressed: _testForegroundNotification,
                 ),
                 const SizedBox(height: 8),
                 _buildTestButton(
@@ -855,19 +818,117 @@ class _ReminderSettingScreenState extends ConsumerState<ReminderSettingScreen> {
                 ),
                 const SizedBox(height: 8),
                 _buildTestButton(
-                  icon: Icons.security,
-                  label: 'Check Permissions',
+                  icon: Icons.refresh,
+                  label: 'Force Reschedule All Reminders',
                   color: Colors.purple,
-                  onPressed: _checkPermissions,
+                  onPressed: _forceRescheduleReminders,
                 ),
                 const SizedBox(height: 8),
                 _buildTestButton(
-                  icon: Icons.restart_alt,
-                  label: 'Reset Reminder Data',
-                  color: Colors.red,
-                  onPressed: _resetReminderData,
+                  icon: Icons.security,
+                  label: 'Check Permissions',
+                  color: Colors.indigo,
+                  onPressed: _checkPermissions,
                 ),
               ],
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
+  Widget _buildDebugSection() {
+    return Card(
+      elevation: 2,
+      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+      child: Padding(
+        padding: const EdgeInsets.all(16),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            const Row(
+              children: [
+                Icon(Icons.bug_report, size: 20, color: Colors.deepPurple),
+                SizedBox(width: 8),
+                Text(
+                  'Debug Information',
+                  style: TextStyle(
+                    fontSize: 18,
+                    fontWeight: FontWeight.bold,
+                    color: Colors.deepPurple,
+                  ),
+                ),
+              ],
+            ),
+            const SizedBox(height: 12),
+            if (_controller.lastErrorMessage != null)
+              Container(
+                padding: const EdgeInsets.all(12),
+                decoration: BoxDecoration(
+                  color: Colors.red[50],
+                  borderRadius: BorderRadius.circular(8),
+                  border: Border.all(color: Colors.red[200]!),
+                ),
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    const Text(
+                      'Last Error:',
+                      style: TextStyle(
+                        fontWeight: FontWeight.bold,
+                        color: Colors.red,
+                      ),
+                    ),
+                    const SizedBox(height: 4),
+                    Text(
+                      _controller.lastErrorMessage!,
+                      style: const TextStyle(fontSize: 12, color: Colors.red),
+                    ),
+                  ],
+                ),
+              ),
+            if (_controller.lastDebugMessage != null) ...[
+              const SizedBox(height: 8),
+              Container(
+                padding: const EdgeInsets.all(12),
+                decoration: BoxDecoration(
+                  color: Colors.blue[50],
+                  borderRadius: BorderRadius.circular(8),
+                  border: Border.all(color: Colors.blue[200]!),
+                ),
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    const Text(
+                      'Last Debug:',
+                      style: TextStyle(
+                        fontWeight: FontWeight.bold,
+                        color: Colors.blue,
+                      ),
+                    ),
+                    const SizedBox(height: 4),
+                    Text(
+                      _controller.lastDebugMessage!,
+                      style: const TextStyle(fontSize: 12),
+                    ),
+                  ],
+                ),
+              ),
+            ],
+            const SizedBox(height: 16),
+            _buildTestButton(
+              icon: Icons.bug_report,
+              label: 'Show Debug Info (Console)',
+              color: Colors.deepPurple,
+              onPressed: _showDebugInfo,
+            ),
+            const SizedBox(height: 8),
+            _buildTestButton(
+              icon: Icons.restart_alt,
+              label: 'Reset All Reminder Data',
+              color: Colors.red,
+              onPressed: _resetReminderData,
             ),
           ],
         ),
@@ -907,32 +968,34 @@ class _ReminderSettingScreenState extends ConsumerState<ReminderSettingScreen> {
         if (_controller.hasChanges)
           Card(
             color: Colors.blue[50],
+            shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
             child: Padding(
               padding: const EdgeInsets.all(12),
               child: Row(
                 children: [
                   const Icon(Icons.info, color: Colors.blue, size: 20),
                   const SizedBox(width: 8),
-                  Expanded(
+                  const Expanded(
                     child: Text(
                       'You have unsaved changes',
                       style: TextStyle(
-                        color: Colors.blue[800],
                         fontWeight: FontWeight.w500,
                       ),
                     ),
+                  ),
+                  TextButton(
+                    onPressed: _saveSettings,
+                    child: const Text('SAVE NOW'),
                   ),
                 ],
               ),
             ),
           ),
-
         const SizedBox(height: 8),
-
         SizedBox(
           width: double.infinity,
           child: ElevatedButton(
-            onPressed: _controller.isLoading ? null : _saveSettings,
+            onPressed: (_controller.isLoading || _isSaving) ? null : _saveSettings,
             style: ElevatedButton.styleFrom(
               backgroundColor: Colors.blue,
               foregroundColor: Colors.white,
@@ -942,7 +1005,7 @@ class _ReminderSettingScreenState extends ConsumerState<ReminderSettingScreen> {
               ),
               elevation: 2,
             ),
-            child: _controller.isLoading
+            child: (_controller.isLoading || _isSaving)
                 ? const SizedBox(
                     height: 20,
                     width: 20,
@@ -997,7 +1060,9 @@ class _ReminderSettingScreenState extends ConsumerState<ReminderSettingScreen> {
 
     if (pickedTime != null && pickedTime != _controller.selectedTime) {
       _controller.setSelectedTime(pickedTime);
-      _showSnackBar('Time set to ${_controller.getTimeString(pickedTime)}');
+      if (mounted) {
+        _showSnackBar('Time set to ${_controller.getTimeString(pickedTime)}', isSuccess: true);
+      }
     }
   }
 }

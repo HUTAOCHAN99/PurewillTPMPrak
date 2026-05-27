@@ -3,6 +3,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:purewill/domain/model/plan_model.dart';
 import 'package:purewill/ui/admin/admin_dashboard_screen.dart';
 import 'package:purewill/ui/habit-tracker/screen/badge_xp_screen.dart';
+import 'package:purewill/ui/habit-tracker/screen/feedback_screen.dart';
 import 'package:purewill/ui/habit-tracker/screen/membership_screen.dart';
 import 'package:purewill/ui/habit-tracker/widget/habit_detail/doctor_activation_screen.dart';
 import 'package:purewill/ui/habit-tracker/widget/menu_button.dart';
@@ -161,7 +162,7 @@ class HabitHeader extends ConsumerWidget {
 
   void _showUserProfileMenu(BuildContext context) {
     bool darkMode = false; // Contoh state untuk dark mode
-    
+
     showModalBottomSheet(
       context: context,
       shape: const RoundedRectangleBorder(
@@ -214,8 +215,8 @@ class HabitHeader extends ConsumerWidget {
                             border: Border.all(color: _getRoleColor()),
                           ),
                           child: Icon(
-                            userRole == 'doctor' 
-                                ? Icons.verified 
+                            userRole == 'doctor'
+                                ? Icons.verified
                                 : Icons.shield,
                             color: _getRoleColor(),
                             size: 16,
@@ -224,7 +225,7 @@ class HabitHeader extends ConsumerWidget {
                       ),
                   ],
                 ),
-                
+
                 const SizedBox(height: 12),
                 Text(
                   userName,
@@ -237,7 +238,7 @@ class HabitHeader extends ConsumerWidget {
                   userEmail,
                   style: const TextStyle(color: Colors.grey, fontSize: 14),
                 ),
-                
+
                 // Tampilkan status role dan membership
                 const SizedBox(height: 8),
                 Row(
@@ -276,9 +277,9 @@ class HabitHeader extends ConsumerWidget {
                         ],
                       ),
                     ),
-                    
+
                     const SizedBox(width: 8),
-                    
+
                     // Badge membership
                     Container(
                       padding: const EdgeInsets.symmetric(
@@ -286,12 +287,12 @@ class HabitHeader extends ConsumerWidget {
                         vertical: 6,
                       ),
                       decoration: BoxDecoration(
-                        color: isPremiumUser 
+                        color: isPremiumUser
                             ? _withOpacity(Colors.deepPurple, 0.1)
                             : Colors.grey[100],
                         borderRadius: BorderRadius.circular(20),
                         border: Border.all(
-                          color: isPremiumUser 
+                          color: isPremiumUser
                               ? _withOpacity(Colors.deepPurple, 0.3)
                               : Colors.grey[300]!,
                         ),
@@ -301,14 +302,18 @@ class HabitHeader extends ConsumerWidget {
                         children: [
                           Icon(
                             isPremiumUser ? Icons.star : Icons.person_outline,
-                            color: isPremiumUser ? Colors.deepPurple : Colors.grey,
+                            color: isPremiumUser
+                                ? Colors.deepPurple
+                                : Colors.grey,
                             size: 14,
                           ),
                           const SizedBox(width: 6),
                           Text(
                             isPremiumUser ? 'Premium' : 'Free',
                             style: TextStyle(
-                              color: isPremiumUser ? Colors.deepPurple : Colors.grey,
+                              color: isPremiumUser
+                                  ? Colors.deepPurple
+                                  : Colors.grey,
                               fontSize: 12,
                               fontWeight: FontWeight.w600,
                             ),
@@ -318,9 +323,9 @@ class HabitHeader extends ConsumerWidget {
                     ),
                   ],
                 ),
-                
+
                 const SizedBox(height: 20),
-                
+
                 // Menu items
                 Expanded(
                   child: SingleChildScrollView(
@@ -361,13 +366,15 @@ class HabitHeader extends ConsumerWidget {
 
                         MenuButton(
                           icon: isPremiumUser ? Icons.star : Icons.upgrade,
-                          title: isPremiumUser ? 'My Membership' : 'Upgrade to Premium',
+                          title: isPremiumUser
+                              ? 'My Membership'
+                              : 'Upgrade to Premium',
                           onTap: () {
                             Navigator.pop(context);
                             _navigateToMembershipScreen(context);
                           },
                         ),
-                        
+
                         MenuButton(
                           icon: Icons.settings_outlined,
                           title: 'Settings',
@@ -376,7 +383,7 @@ class HabitHeader extends ConsumerWidget {
                             _showComingSoonSnackbar(context, 'Settings');
                           },
                         ),
-                        
+
                         MenuButton(
                           icon: Icons.help_outline,
                           title: 'Help & Support',
@@ -385,7 +392,7 @@ class HabitHeader extends ConsumerWidget {
                             _showComingSoonSnackbar(context, 'Help & Support');
                           },
                         ),
-                        
+
                         MenuButton(
                           icon: Icons.info_outline,
                           title: 'About',
@@ -394,7 +401,7 @@ class HabitHeader extends ConsumerWidget {
                             _showAboutDialog(context);
                           },
                         ),
-                        
+
                         MenuButton(
                           icon: Icons.people_outline,
                           title: 'Friends',
@@ -403,7 +410,17 @@ class HabitHeader extends ConsumerWidget {
                             _showComingSoonSnackbar(context, 'Friends');
                           },
                         ),
-                        
+
+                        MenuButton(
+                          icon: Icons.feedback_outlined,
+                          title: 'Kesan & Pesan',
+                          subtitle: 'Untuk Mata Kuliah TPM',
+                          onTap: () {
+                            Navigator.pop(context);
+                            _navigateToFeedbackScreen(context);
+                          },
+                        ),
+
                         MenuButton(
                           icon: Icons.notifications_outlined,
                           title: 'Notifications',
@@ -413,7 +430,7 @@ class HabitHeader extends ConsumerWidget {
                             _showComingSoonSnackbar(context, 'Notifications');
                           },
                         ),
-                        
+
                         MenuButton(
                           icon: Icons.bar_chart_outlined,
                           title: 'Statistics',
@@ -422,7 +439,7 @@ class HabitHeader extends ConsumerWidget {
                             _showComingSoonSnackbar(context, 'Statistics');
                           },
                         ),
-                        
+
                         // Dark Mode dengan switch
                         Container(
                           margin: const EdgeInsets.symmetric(vertical: 8),
@@ -433,7 +450,9 @@ class HabitHeader extends ConsumerWidget {
                           child: ListTile(
                             leading: Icon(
                               darkMode ? Icons.dark_mode : Icons.light_mode,
-                              color: darkMode ? Colors.deepPurple : Colors.orange,
+                              color: darkMode
+                                  ? Colors.deepPurple
+                                  : Colors.orange,
                             ),
                             title: Text(
                               'Dark Mode',
@@ -466,7 +485,7 @@ class HabitHeader extends ConsumerWidget {
                 ),
 
                 const SizedBox(height: 20),
-                
+
                 Container(
                   width: double.infinity,
                   margin: const EdgeInsets.only(top: 10),
@@ -503,34 +522,30 @@ class HabitHeader extends ConsumerWidget {
   }
 
   void _navigateToMembershipScreen(BuildContext context) {
-    Navigator.of(context).push(
-      MaterialPageRoute(builder: (context) => const MembershipScreen())
-    );
+    Navigator.of(
+      context,
+    ).push(MaterialPageRoute(builder: (context) => const MembershipScreen()));
   }
 
   void _navigateToDoctorActivationScreen(BuildContext context) {
     Navigator.of(context).push(
       MaterialPageRoute(
-        builder: (context) => DoctorActivationScreen(
-          userEmail: userEmail,
-          userName: userName,
-        ),
+        builder: (context) =>
+            DoctorActivationScreen(userEmail: userEmail, userName: userName),
       ),
     );
   }
 
   void _navigateToAdminDashboard(BuildContext context) {
     Navigator.of(context).push(
-      MaterialPageRoute(
-        builder: (context) => const AdminDashboardScreen(),
-      ),
+      MaterialPageRoute(builder: (context) => const AdminDashboardScreen()),
     );
   }
 
   void _navigateToBadgeXpScreen(BuildContext context) {
-    Navigator.of(context).push(
-      MaterialPageRoute(builder: (context) => const BadgeXpScreen())
-    );
+    Navigator.of(
+      context,
+    ).push(MaterialPageRoute(builder: (context) => const BadgeXpScreen()));
   }
 
   void _showComingSoonSnackbar(BuildContext context, String feature) {
@@ -540,6 +555,12 @@ class HabitHeader extends ConsumerWidget {
         duration: const Duration(seconds: 2),
       ),
     );
+  }
+
+  void _navigateToFeedbackScreen(BuildContext context) {
+    Navigator.of(
+      context,
+    ).push(MaterialPageRoute(builder: (context) => const FeedbackScreen()));
   }
 
   void _showAboutDialog(BuildContext context) {
@@ -569,10 +590,7 @@ class HabitHeader extends ConsumerWidget {
                 'PureWill helps you build better habits, track your progress, and connect with a supportive community.',
               ),
               SizedBox(height: 16),
-              Text(
-                'Features:',
-                style: TextStyle(fontWeight: FontWeight.bold),
-              ),
+              Text('Features:', style: TextStyle(fontWeight: FontWeight.bold)),
               SizedBox(height: 4),
               Text('• Habit tracking and reminders'),
               Text('• Progress visualization'),

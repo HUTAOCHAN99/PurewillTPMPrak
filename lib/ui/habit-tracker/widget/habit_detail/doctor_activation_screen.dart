@@ -27,6 +27,8 @@ class DoctorActivationScreenState extends ConsumerState<DoctorActivationScreen> 
   int _step = 1; // 1: Request, 2: Wait for admin, 3: Enter OTP
   bool _tableExists = true;
   bool _initialCheckComplete = false;
+  bool _isAlreadyDoctor = false;
+  String? _currentRequestId;
 
   final SupabaseClient _supabase = Supabase.instance.client;
 
@@ -34,7 +36,7 @@ class DoctorActivationScreenState extends ConsumerState<DoctorActivationScreen> 
   void initState() {
     super.initState();
     WidgetsBinding.instance.addPostFrameCallback((_) {
-      _checkExistingRequest();
+      _checkStatus();
     });
   }
 
@@ -44,12 +46,12 @@ class DoctorActivationScreenState extends ConsumerState<DoctorActivationScreen> 
     super.dispose();
   }
 
-  Future<void> _checkExistingRequest() async {
+  Future<void> _checkStatus() async {
     try {
       final user = _supabase.auth.currentUser;
       if (user == null) return;
 
-      // Cek apakah tabel ada dengan query sederhana
+      // Check if table exists
       try {
         await _supabase
             .from('doctor_activation_requests')
@@ -67,34 +69,37 @@ class DoctorActivationScreenState extends ConsumerState<DoctorActivationScreen> 
         }
       }
 
-      // Jika tabel ada, cek request existing
-      final response = await _supabase
-          .from('doctor_activation_requests')
-          .select()
-          .eq('user_id', user.id)
-          .or('status.eq.pending,status.eq.approved')
-          .maybeSingle();
-
-      if (mounted) {
-        if (response != null) {
+      final service = ref.read(doctorActivationServiceProvider);
+      
+      // Check if already doctor
+      final isDoctor = await service.isUserDoctor(user.id);
+      if (isDoctor) {
+        if (mounted) {
           setState(() {
-            _tableExists = true;
-            if (response['status'] == 'pending') {
-              _step = 2; // Menunggu admin
-              _successMessage = 'Request Anda sedang ditinjau oleh admin.';
-            } else if (response['status'] == 'approved') {
-              _step = 3; // Masukkan OTP
-              _successMessage = 'Request Anda telah disetujui! Masukkan OTP yang dikirim ke email.';
-            }
-            _initialCheckComplete = true;
-          });
-        } else {
-          setState(() {
-            _tableExists = true;
-            _step = 1;
+            _isAlreadyDoctor = true;
             _initialCheckComplete = true;
           });
         }
+        return;
+      }
+      
+      // Check existing request status
+      final status = await service.getUserActivationStatus(user.id);
+      
+      if (mounted) {
+        setState(() {
+          _tableExists = true;
+          if (status == 'pending') {
+            _step = 2;
+            _successMessage = 'Request Anda sedang ditinjau oleh admin.';
+          } else if (status == 'approved') {
+            _step = 3;
+            _successMessage = 'Request Anda telah disetujui! Masukkan OTP yang diberikan admin.';
+          } else {
+            _step = 1;
+          }
+          _initialCheckComplete = true;
+        });
       }
     } catch (e) {
       if (mounted) {
@@ -102,7 +107,7 @@ class DoctorActivationScreenState extends ConsumerState<DoctorActivationScreen> 
           _initialCheckComplete = true;
         });
       }
-      debugPrint('Error checking existing request: $e');
+      debugPrint('Error checking status: $e');
     }
   }
 
@@ -128,6 +133,7 @@ class DoctorActivationScreenState extends ConsumerState<DoctorActivationScreen> 
       if (result.success) {
         setState(() {
           _step = 2;
+          _currentRequestId = result.requestId;
           _successMessage = result.message ?? 'Request berhasil dikirim!';
         });
       } else {
@@ -150,9 +156,9 @@ class DoctorActivationScreenState extends ConsumerState<DoctorActivationScreen> 
 
   Future<void> _verifyOTP() async {
     final otp = _otpController.text.trim();
-    if (otp.length != 8) {
+    if (otp.length != 6) {
       setState(() {
-        _errorMessage = 'OTP harus 8 digit angka';
+        _errorMessage = 'OTP harus 6 digit angka';
       });
       return;
     }
@@ -179,10 +185,10 @@ class DoctorActivationScreenState extends ConsumerState<DoctorActivationScreen> 
           _successMessage = result.message ?? 'Akun dokter berhasil diaktifkan!';
         });
         
-        // Tunggu sebentar lalu kembali
+        // Wait a moment then go back
         Future.delayed(const Duration(seconds: 2), () {
           if (mounted) {
-            Navigator.pop(context);
+            Navigator.pop(context, true);
           }
         });
       } else {
@@ -203,7 +209,10 @@ class DoctorActivationScreenState extends ConsumerState<DoctorActivationScreen> 
     }
   }
 
-  // Helper function untuk opacity (kompatibel dengan Flutter terbaru)
+  Future<void> _refreshStatus() async {
+    await _checkStatus();
+  }
+
   Color _withOpacity(Color color, double opacity) {
     return color.withAlpha((opacity * 255).round());
   }
@@ -212,29 +221,28 @@ class DoctorActivationScreenState extends ConsumerState<DoctorActivationScreen> 
     return Row(
       mainAxisAlignment: MainAxisAlignment.center,
       children: [
-        _buildStepCircle(1, 'Request'),
+        _buildStepCircle(1, 'Request', _step >= 1),
         _buildStepLine(),
-        _buildStepCircle(2, 'Admin Review'),
+        _buildStepCircle(2, 'Admin Review', _step >= 2),
         _buildStepLine(),
-        _buildStepCircle(3, 'Verify OTP'),
+        _buildStepCircle(3, 'Verify OTP', _step >= 3),
       ],
     );
   }
 
-  Widget _buildStepCircle(int stepNumber, String label) {
-    bool isActive = _step >= stepNumber;
+  Widget _buildStepCircle(int stepNumber, String label, bool isActive) {
     bool isCurrent = _step == stepNumber;
     
     return Column(
       children: [
         Container(
-          width: 32,
-          height: 32,
+          width: 36,
+          height: 36,
           decoration: BoxDecoration(
-            color: isActive ? Colors.green : Colors.grey[300],
+            color: isActive ? const Color(0xFF00BFA5) : Colors.grey[300],
             shape: BoxShape.circle,
             border: isCurrent 
-                ? Border.all(color: Colors.green, width: 2)
+                ? Border.all(color: const Color(0xFF00BFA5), width: 2)
                 : null,
           ),
           child: Center(
@@ -252,7 +260,7 @@ class DoctorActivationScreenState extends ConsumerState<DoctorActivationScreen> 
           label,
           style: TextStyle(
             fontSize: 10,
-            color: isActive ? Colors.green : Colors.grey[600],
+            color: isActive ? const Color(0xFF00BFA5) : Colors.grey[600],
             fontWeight: isCurrent ? FontWeight.bold : FontWeight.normal,
           ),
         ),
@@ -272,7 +280,7 @@ class DoctorActivationScreenState extends ConsumerState<DoctorActivationScreen> 
   Widget _buildLoadingScreen() {
     return Scaffold(
       appBar: AppBar(
-        title: const Text('Aktivasi Akun Doctor'),
+        title: const Text('Aktivasi Akun Dokter'),
       ),
       body: const Center(
         child: Column(
@@ -287,10 +295,55 @@ class DoctorActivationScreenState extends ConsumerState<DoctorActivationScreen> 
     );
   }
 
+  Widget _buildAlreadyDoctorScreen() {
+    return Scaffold(
+      appBar: AppBar(
+        title: const Text('Aktivasi Akun Dokter'),
+        leading: IconButton(
+          icon: const Icon(Icons.arrow_back),
+          onPressed: () => Navigator.pop(context),
+        ),
+      ),
+      body: Center(
+        child: Padding(
+          padding: const EdgeInsets.all(20),
+          child: Column(
+            mainAxisAlignment: MainAxisAlignment.center,
+            children: [
+              const Icon(Icons.check_circle, size: 80, color: Colors.green),
+              const SizedBox(height: 20),
+              const Text(
+                'Akun Anda Sudah Aktif',
+                style: TextStyle(fontSize: 24, fontWeight: FontWeight.bold),
+              ),
+              const SizedBox(height: 10),
+              const Text(
+                'Anda sudah terdaftar sebagai dokter.',
+                textAlign: TextAlign.center,
+              ),
+              const SizedBox(height: 30),
+              ElevatedButton(
+                onPressed: () => Navigator.pop(context),
+                style: ElevatedButton.styleFrom(
+                  backgroundColor: const Color(0xFF00BFA5),
+                  padding: const EdgeInsets.symmetric(horizontal: 30, vertical: 12),
+                  shape: RoundedRectangleBorder(
+                    borderRadius: BorderRadius.circular(10),
+                  ),
+                ),
+                child: const Text('Kembali'),
+              ),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+
   Widget _buildTableNotFoundScreen() {
     return Scaffold(
       appBar: AppBar(
-        title: const Text('Aktivasi Akun Doctor'),
+        title: const Text('Aktivasi Akun Dokter'),
         leading: IconButton(
           icon: const Icon(Icons.arrow_back),
           onPressed: () => Navigator.pop(context),
@@ -317,13 +370,13 @@ class DoctorActivationScreenState extends ConsumerState<DoctorActivationScreen> 
               ElevatedButton(
                 onPressed: () => Navigator.pop(context),
                 style: ElevatedButton.styleFrom(
-                  backgroundColor: Colors.green,
+                  backgroundColor: const Color(0xFF00BFA5),
                   padding: const EdgeInsets.symmetric(horizontal: 30, vertical: 12),
                   shape: RoundedRectangleBorder(
                     borderRadius: BorderRadius.circular(10),
                   ),
                 ),
-                child: const Text('Kembali ke Beranda'),
+                child: const Text('Kembali'),
               ),
             ],
           ),
@@ -334,23 +387,33 @@ class DoctorActivationScreenState extends ConsumerState<DoctorActivationScreen> 
 
   @override
   Widget build(BuildContext context) {
-    // Loading screen untuk initial check
     if (!_initialCheckComplete) {
       return _buildLoadingScreen();
     }
 
-    // Tampilkan error jika tabel tidak ada
+    if (_isAlreadyDoctor) {
+      return _buildAlreadyDoctorScreen();
+    }
+
     if (!_tableExists) {
       return _buildTableNotFoundScreen();
     }
 
     return Scaffold(
       appBar: AppBar(
-        title: const Text('Aktivasi Akun Doctor'),
+        title: const Text('Aktivasi Akun Dokter'),
         leading: IconButton(
           icon: const Icon(Icons.arrow_back),
           onPressed: () => Navigator.pop(context),
         ),
+        actions: [
+          if (_step == 2)
+            IconButton(
+              icon: const Icon(Icons.refresh),
+              onPressed: _refreshStatus,
+              tooltip: 'Refresh Status',
+            ),
+        ],
       ),
       body: SingleChildScrollView(
         padding: const EdgeInsets.all(20),
@@ -362,57 +425,19 @@ class DoctorActivationScreenState extends ConsumerState<DoctorActivationScreen> 
             
             const SizedBox(height: 32),
             
-            // Konten berdasarkan step
+            // Content based on step
             if (_step == 1) _buildStep1Content(),
             if (_step == 2) _buildStep2Content(),
             if (_step == 3) _buildStep3Content(),
             
             const SizedBox(height: 24),
             
-            // Pesan error/success
+            // Error/Success messages
             if (_errorMessage.isNotEmpty)
-              Container(
-                padding: const EdgeInsets.all(12),
-                decoration: BoxDecoration(
-                  color: _withOpacity(Colors.red, 0.1),
-                  borderRadius: BorderRadius.circular(8),
-                  border: Border.all(color: _withOpacity(Colors.red, 0.3)),
-                ),
-                child: Row(
-                  children: [
-                    const Icon(Icons.error_outline, color: Colors.red, size: 20),
-                    const SizedBox(width: 8),
-                    Expanded(
-                      child: Text(
-                        _errorMessage,
-                        style: const TextStyle(color: Colors.red),
-                      ),
-                    ),
-                  ],
-                ),
-              ),
+              _buildMessageBox(_errorMessage, isError: true),
             
             if (_successMessage.isNotEmpty)
-              Container(
-                padding: const EdgeInsets.all(12),
-                decoration: BoxDecoration(
-                  color: _withOpacity(Colors.green, 0.1),
-                  borderRadius: BorderRadius.circular(8),
-                  border: Border.all(color: _withOpacity(Colors.green, 0.3)),
-                ),
-                child: Row(
-                  children: [
-                    const Icon(Icons.check_circle, color: Colors.green, size: 20),
-                    const SizedBox(width: 8),
-                    Expanded(
-                      child: Text(
-                        _successMessage,
-                        style: const TextStyle(color: Colors.green),
-                      ),
-                    ),
-                  ],
-                ),
-              ),
+              _buildMessageBox(_successMessage, isError: false),
           ],
         ),
       ),
@@ -424,7 +449,7 @@ class DoctorActivationScreenState extends ConsumerState<DoctorActivationScreen> 
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
         const Text(
-          'Request Doctor Account Activation',
+          'Request Aktivasi Dokter',
           style: TextStyle(
             fontSize: 20,
             fontWeight: FontWeight.bold,
@@ -432,16 +457,17 @@ class DoctorActivationScreenState extends ConsumerState<DoctorActivationScreen> 
         ),
         const SizedBox(height: 12),
         Text(
-          'Untuk mengaktifkan akun dokter, Anda perlu mengirim request terlebih dahulu. Admin akan meninjau permintaan Anda dan mengirimkan OTP verifikasi jika disetujui.',
+          'Kirim request ke admin untuk mengaktifkan akun dokter Anda. Admin akan meninjau dan memberikan kode OTP jika disetujui.',
           style: TextStyle(
             fontSize: 14,
             color: Colors.grey[700],
+            height: 1.5,
           ),
         ),
         
         const SizedBox(height: 24),
         
-        // Informasi akun
+        // Account info card
         Container(
           padding: const EdgeInsets.all(16),
           decoration: BoxDecoration(
@@ -452,12 +478,12 @@ class DoctorActivationScreenState extends ConsumerState<DoctorActivationScreen> 
           child: Column(
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
-              Text(
-                'Akun Anda',
+              const Text(
+                'Informasi Akun',
                 style: TextStyle(
-                  fontSize: 14,
+                  fontSize: 12,
                   fontWeight: FontWeight.w500,
-                  color: Colors.grey[700],
+                  color: Colors.grey,
                 ),
               ),
               const SizedBox(height: 8),
@@ -482,12 +508,36 @@ class DoctorActivationScreenState extends ConsumerState<DoctorActivationScreen> 
         
         const SizedBox(height: 32),
         
+        // Info box
+        Container(
+          padding: const EdgeInsets.all(16),
+          decoration: BoxDecoration(
+            color: Colors.blue[50],
+            borderRadius: BorderRadius.circular(12),
+            border: Border.all(color: Colors.blue[200]!),
+          ),
+          child: Row(
+            children: [
+              Icon(Icons.info_outline, color: Colors.blue[700], size: 20),
+              const SizedBox(width: 12),
+              Expanded(
+                child: Text(
+                  'Setelah request disetujui admin, Anda akan menerima kode OTP untuk verifikasi.',
+                  style: TextStyle(fontSize: 13, color: Colors.blue[800]),
+                ),
+              ),
+            ],
+          ),
+        ),
+        
+        const SizedBox(height: 32),
+        
         SizedBox(
           width: double.infinity,
           child: ElevatedButton(
             onPressed: _isSendingRequest ? null : _sendActivationRequest,
             style: ElevatedButton.styleFrom(
-              backgroundColor: Colors.green,
+              backgroundColor: const Color(0xFF00BFA5),
               padding: const EdgeInsets.symmetric(vertical: 16),
               shape: RoundedRectangleBorder(
                 borderRadius: BorderRadius.circular(12),
@@ -520,7 +570,7 @@ class DoctorActivationScreenState extends ConsumerState<DoctorActivationScreen> 
       crossAxisAlignment: CrossAxisAlignment.center,
       children: [
         const Icon(
-          Icons.hourglass_top,
+          Icons.hourglass_empty,
           size: 80,
           color: Colors.orange,
         ),
@@ -536,34 +586,29 @@ class DoctorActivationScreenState extends ConsumerState<DoctorActivationScreen> 
         Padding(
           padding: const EdgeInsets.symmetric(horizontal: 20),
           child: Text(
-            'Request aktivasi Anda sedang ditinjau oleh admin. Anda akan menerima email dengan OTP verifikasi jika request disetujui.',
+            'Request aktivasi Anda sedang ditinjau oleh admin. Anda akan menerima kode OTP dari admin jika request disetujui.',
             textAlign: TextAlign.center,
             style: TextStyle(
               fontSize: 14,
               color: Colors.grey[700],
+              height: 1.5,
             ),
           ),
         ),
         const SizedBox(height: 32),
         const CircularProgressIndicator(
-          color: Colors.green,
+          color: Color(0xFF00BFA5),
         ),
         const SizedBox(height: 20),
-        SizedBox(
-          width: double.infinity,
-          child: OutlinedButton(
-            onPressed: () {
-              // Refresh status
-              _checkExistingRequest();
-            },
-            style: OutlinedButton.styleFrom(
-              padding: const EdgeInsets.symmetric(vertical: 12),
-              shape: RoundedRectangleBorder(
-                borderRadius: BorderRadius.circular(12),
-              ),
+        OutlinedButton(
+          onPressed: _refreshStatus,
+          style: OutlinedButton.styleFrom(
+            padding: const EdgeInsets.symmetric(horizontal: 24, vertical: 12),
+            shape: RoundedRectangleBorder(
+              borderRadius: BorderRadius.circular(12),
             ),
-            child: const Text('Refresh Status'),
           ),
+          child: const Text('Refresh Status'),
         ),
       ],
     );
@@ -582,7 +627,7 @@ class DoctorActivationScreenState extends ConsumerState<DoctorActivationScreen> 
         ),
         const SizedBox(height: 12),
         Text(
-          'Masukkan 8 digit kode OTP yang dikirim ke email Anda:',
+          'Masukkan 6 digit kode OTP yang diberikan oleh admin:',
           style: TextStyle(
             fontSize: 14,
             color: Colors.grey[700],
@@ -594,20 +639,21 @@ class DoctorActivationScreenState extends ConsumerState<DoctorActivationScreen> 
         TextField(
           controller: _otpController,
           keyboardType: TextInputType.number,
-          maxLength: 8,
+          maxLength: 6,
+          autofocus: true,
           decoration: InputDecoration(
-            hintText: '12345678',
+            hintText: '000000',
             counterText: '',
             border: OutlineInputBorder(
               borderRadius: BorderRadius.circular(12),
             ),
-            prefixIcon: const Icon(Icons.lock),
+            prefixIcon: const Icon(Icons.lock_outline),
             filled: true,
             fillColor: Colors.grey[50],
           ),
           style: const TextStyle(
-            fontSize: 18,
-            letterSpacing: 8,
+            fontSize: 24,
+            letterSpacing: 6,
             fontWeight: FontWeight.w600,
           ),
           textAlign: TextAlign.center,
@@ -620,7 +666,7 @@ class DoctorActivationScreenState extends ConsumerState<DoctorActivationScreen> 
           child: ElevatedButton(
             onPressed: _isLoading ? null : _verifyOTP,
             style: ElevatedButton.styleFrom(
-              backgroundColor: Colors.green,
+              backgroundColor: const Color(0xFF00BFA5),
               padding: const EdgeInsets.symmetric(vertical: 16),
               shape: RoundedRectangleBorder(
                 borderRadius: BorderRadius.circular(12),
@@ -636,7 +682,7 @@ class DoctorActivationScreenState extends ConsumerState<DoctorActivationScreen> 
                     ),
                   )
                 : const Text(
-                    'Verifikasi & Aktifkan Akun',
+                    'Verifikasi & Aktifkan',
                     style: TextStyle(
                       fontSize: 16,
                       fontWeight: FontWeight.w600,
@@ -644,28 +690,38 @@ class DoctorActivationScreenState extends ConsumerState<DoctorActivationScreen> 
                   ),
           ),
         ),
-        
-        const SizedBox(height: 16),
-        
-        SizedBox(
-          width: double.infinity,
-          child: TextButton(
-            onPressed: () {
-              // Resend OTP atau kembali ke step 1
-              setState(() {
-                _step = 1;
-                _otpController.clear();
-                _errorMessage = '';
-                _successMessage = '';
-              });
-            },
-            child: const Text(
-              'Request Ulang',
-              style: TextStyle(color: Colors.green),
+      ],
+    );
+  }
+
+  Widget _buildMessageBox(String message, {required bool isError}) {
+    return Container(
+      padding: const EdgeInsets.all(12),
+      decoration: BoxDecoration(
+        color: (isError ? Colors.red : Colors.green).withOpacity(0.1),
+        borderRadius: BorderRadius.circular(8),
+        border: Border.all(
+          color: (isError ? Colors.red : Colors.green).withOpacity(0.3),
+        ),
+      ),
+      child: Row(
+        children: [
+          Icon(
+            isError ? Icons.error_outline : Icons.check_circle,
+            color: isError ? Colors.red : Colors.green,
+            size: 20,
+          ),
+          const SizedBox(width: 8),
+          Expanded(
+            child: Text(
+              message,
+              style: TextStyle(
+                color: isError ? Colors.red : Colors.green,
+              ),
             ),
           ),
-        ),
-      ],
+        ],
+      ),
     );
   }
 }

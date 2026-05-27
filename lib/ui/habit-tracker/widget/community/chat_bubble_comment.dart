@@ -8,6 +8,7 @@ class ChatBubble extends StatelessWidget {
   final VoidCallback? onLike;
   final VoidCallback? onReply;
   final VoidCallback? onDelete;
+  final VoidCallback? onReport;
   final VoidCallback? onAvatarTap;
   final bool showTail;
   final bool isReply;
@@ -19,6 +20,7 @@ class ChatBubble extends StatelessWidget {
     this.onLike,
     this.onReply,
     this.onDelete,
+    this.onReport,
     this.onAvatarTap,
     this.showTail = true,
     this.isReply = false,
@@ -29,27 +31,22 @@ class ChatBubble extends StatelessWidget {
     final theme = Theme.of(context);
     final isDarkMode = theme.brightness == Brightness.dark;
 
-    // Warna untuk bubble
     final bubbleColor = isCurrentUser
         ? (isDarkMode ? Colors.blue[800] : Colors.blue[100])
         : (isDarkMode ? Colors.grey[800] : Colors.grey[100]);
 
-    // Warna teks
     final textColor = isCurrentUser
         ? (isDarkMode ? Colors.white : Colors.blue[900])
         : (isDarkMode ? Colors.white : Colors.grey[900]);
 
-    // Warna timestamp
     final timestampColor = isCurrentUser
         ? (isDarkMode ? Colors.blue[300] : Colors.blue[600])
         : (isDarkMode ? Colors.grey[400] : Colors.grey[600]);
 
-    // Avatar
     final avatarUrl = comment.author?.avatarUrl;
     final authorName = comment.author?.fullName ?? 'Pengguna';
     final level = comment.author?.level ?? 1;
 
-    // Buat avatar widget dengan gesture detector
     Widget buildAvatarWidget() {
       final avatar = Container(
         width: 36,
@@ -80,7 +77,6 @@ class ChatBubble extends StatelessWidget {
             : null,
       );
 
-      // Wrap dengan GestureDetector jika onAvatarTap ada
       return onAvatarTap != null
           ? GestureDetector(
               onTap: onAvatarTap,
@@ -107,6 +103,42 @@ class ChatBubble extends StatelessWidget {
       );
     }
 
+    Widget buildPopupMenu() {
+      return PopupMenuButton<String>(
+        icon: Icon(Icons.more_horiz, size: 18, color: timestampColor),
+        onSelected: (value) {
+          if (value == 'delete' && onDelete != null) {
+            onDelete!();
+          } else if (value == 'report' && onReport != null) {
+            onReport!();
+          }
+        },
+        itemBuilder: (context) => [
+          const PopupMenuItem(
+            value: 'report',
+            child: Row(
+              children: [
+                Icon(Icons.flag_outlined, size: 18, color: Colors.red),
+                SizedBox(width: 8),
+                Text('Laporkan', style: TextStyle(color: Colors.red)),
+              ],
+            ),
+          ),
+          if (onDelete != null)
+            const PopupMenuItem(
+              value: 'delete',
+              child: Row(
+                children: [
+                  Icon(Icons.delete_outline, size: 18, color: Colors.red),
+                  SizedBox(width: 8),
+                  Text('Hapus', style: TextStyle(color: Colors.red)),
+                ],
+              ),
+            ),
+        ],
+      );
+    }
+
     return Container(
       margin: EdgeInsets.only(
         left: isCurrentUser ? 48 : 12,
@@ -118,7 +150,6 @@ class ChatBubble extends StatelessWidget {
         mainAxisAlignment:
             isCurrentUser ? MainAxisAlignment.end : MainAxisAlignment.start,
         children: [
-          // Avatar untuk user lain (kiri)
           if (!isCurrentUser) ...[
             Column(
               children: [
@@ -131,12 +162,9 @@ class ChatBubble extends StatelessWidget {
             ),
             const SizedBox(width: 8),
           ],
-
-          // Bubble dengan tail
           Expanded(
             child: Stack(
               children: [
-                // Bubble utama
                 Container(
                   padding: const EdgeInsets.all(12),
                   decoration: BoxDecoration(
@@ -159,26 +187,30 @@ class ChatBubble extends StatelessWidget {
                   child: Column(
                     crossAxisAlignment: CrossAxisAlignment.start,
                     children: [
-                      // Nama dan level (hanya untuk user lain)
                       if (!isCurrentUser && !isReply) ...[
                         Row(
                           children: [
-                            Text(
-                              authorName,
-                              style: TextStyle(
-                                fontWeight: FontWeight.bold,
-                                fontSize: 12,
-                                color: textColor,
+                            Expanded(
+                              child: Row(
+                                children: [
+                                  Text(
+                                    authorName,
+                                    style: TextStyle(
+                                      fontWeight: FontWeight.bold,
+                                      fontSize: 12,
+                                      color: textColor,
+                                    ),
+                                  ),
+                                  const SizedBox(width: 4),
+                                  buildLevelBadge(),
+                                ],
                               ),
                             ),
-                            const SizedBox(width: 4),
-                            buildLevelBadge(),
+                            buildPopupMenu(),
                           ],
                         ),
                         const SizedBox(height: 4),
                       ],
-
-                      // Konten komentar
                       Text(
                         comment.content,
                         style: TextStyle(
@@ -187,14 +219,10 @@ class ChatBubble extends StatelessWidget {
                           height: 1.4,
                         ),
                       ),
-
                       const SizedBox(height: 8),
-
-                      // Timestamp dan action buttons
                       Row(
                         mainAxisAlignment: MainAxisAlignment.spaceBetween,
                         children: [
-                          // Timestamp
                           Text(
                             _formatTime(comment.createdAt),
                             style: TextStyle(
@@ -202,11 +230,8 @@ class ChatBubble extends StatelessWidget {
                               color: timestampColor,
                             ),
                           ),
-
-                          // Action buttons
                           Row(
                             children: [
-                              // Like button
                               if (onLike != null)
                                 GestureDetector(
                                   onTap: onLike,
@@ -234,10 +259,7 @@ class ChatBubble extends StatelessWidget {
                                     ],
                                   ),
                                 ),
-
                               const SizedBox(width: 12),
-
-                              // Reply button
                               if (onReply != null && !isReply)
                                 GestureDetector(
                                   onTap: onReply,
@@ -259,19 +281,6 @@ class ChatBubble extends StatelessWidget {
                                     ],
                                   ),
                                 ),
-
-                              // Delete button (hanya untuk user sendiri)
-                              if (onDelete != null && isCurrentUser) ...[
-                                const SizedBox(width: 12),
-                                GestureDetector(
-                                  onTap: onDelete,
-                                  child: Icon(
-                                    Icons.delete_outline,
-                                    size: 14,
-                                    color: timestampColor,
-                                  ),
-                                ),
-                              ],
                             ],
                           ),
                         ],
@@ -279,8 +288,6 @@ class ChatBubble extends StatelessWidget {
                     ],
                   ),
                 ),
-
-                // Tail segitiga
                 if (showTail)
                   Positioned(
                     bottom: 0,
@@ -297,8 +304,6 @@ class ChatBubble extends StatelessWidget {
               ],
             ),
           ),
-
-          // Avatar untuk user sendiri (kanan)
           if (isCurrentUser) ...[
             const SizedBox(width: 8),
             Column(
@@ -332,7 +337,6 @@ class ChatBubble extends StatelessWidget {
   }
 }
 
-// Custom painter untuk tail segitiga
 class ChatBubbleTailPainter extends CustomPainter {
   final Color color;
   final bool isCurrentUser;
@@ -345,17 +349,14 @@ class ChatBubbleTailPainter extends CustomPainter {
   @override
   void paint(Canvas canvas, Size size) {
     final paint = Paint()..color = color;
-
     final path = Path();
 
     if (isCurrentUser) {
-      // Tail mengarah ke kanan (user sendiri)
       path.moveTo(0, size.height);
       path.lineTo(size.width, size.height / 2);
       path.lineTo(0, 0);
       path.close();
     } else {
-      // Tail mengarah ke kiri (user lain)
       path.moveTo(size.width, size.height);
       path.lineTo(0, size.height / 2);
       path.lineTo(size.width, 0);

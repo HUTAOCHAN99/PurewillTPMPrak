@@ -15,9 +15,9 @@ class SignupScreen extends ConsumerStatefulWidget {
 
 class _SignupScreenState extends ConsumerState<SignupScreen> {
   bool _obscurePassword = true;
-  final TextEditingController _fullNameController = TextEditingController(text: 'example');
-  final TextEditingController _emailController = TextEditingController(text: 'mountdev10@gmail.com');
-  final TextEditingController _passwordController = TextEditingController(text: 'Rumah_12345');
+  final TextEditingController _fullNameController = TextEditingController(text: 'Malas Mandi');
+  final TextEditingController _emailController = TextEditingController(text: 'akusiapagktahu@gmail.com');
+  final TextEditingController _passwordController = TextEditingController(text: '12345678');
   final ScrollController _scrollController = ScrollController();
 
   final GlobalKey<FormState> _formKey = GlobalKey<FormState>();
@@ -28,42 +28,6 @@ class _SignupScreenState extends ConsumerState<SignupScreen> {
     );
   }
 
-// <<<<<<< HEAD
-//   Future<void> _signUp() async {
-//     try {
-//           await ref
-//               .read(
-//                 authNotifierProvider.notifier,
-//               )
-//               .signup(
-//                 _fullNameController.text.trim(),
-//                 _emailController.text.trim(),
-//                 _passwordController.text.trim(),
-//               );
-//           if (!mounted) return;
-
-//           _showSnackBar("Registrasi Berhasil! Mengalihkan...");
-
-//           await Future.delayed(const Duration(seconds: 1));
-
-//           if (!mounted) return;
-
-//           Navigator.of(context).push(
-//           MaterialPageRoute(
-//             builder: (context) => VerificationScreen(
-//               email: _emailController.text.trim(),
-//               type: VerificationType.registration,
-//             ),
-//           ),
-//         );
-
-//         } catch (e) {
-//           if (mounted) {
-//             _showSnackBar(
-//                 "Login Gagal: ${e.toString().replaceFirst('Exception: ', '')}");
-//           }
-//         }
-// =======
  Future<void> _signUp() async {
   if (!_formKey.currentState!.validate()) return;
   

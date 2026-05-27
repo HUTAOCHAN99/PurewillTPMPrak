@@ -1,13 +1,16 @@
+// lib/ui/habit-tracker/widget/community/post_card.dart
 import 'package:flutter/material.dart';
-import 'package:flutter/services.dart';
+import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:photo_view/photo_view.dart';
 import 'package:purewill/domain/model/community_model.dart';
 import 'package:timeago/timeago.dart' as timeago;
 import 'package:purewill/data/services/community/image_saver_service.dart';
-import 'package:share_plus/share_plus.dart';
 import 'package:permission_handler/permission_handler.dart';
+import 'package:purewill/ui/habit-tracker/widget/community/community_provider.dart';
+import 'package:purewill/ui/habit-tracker/widget/community/report_dialog.dart';
+import 'package:supabase_flutter/supabase_flutter.dart';
 
-class PostCard extends StatefulWidget {
+class PostCard extends ConsumerStatefulWidget {
   final CommunityPost post;
   final String userId;
   final VoidCallback onLikeToggled;
@@ -28,103 +31,314 @@ class PostCard extends StatefulWidget {
   });
 
   @override
-  State<PostCard> createState() => _PostCardState();
+  ConsumerState<PostCard> createState() => _PostCardState();
 }
 
-class _PostCardState extends State<PostCard> {
+class _PostCardState extends ConsumerState<PostCard> {
   bool _isImageLoading = false;
+  late CommunityPost _currentPost;
 
-  void _showImageFullscreen(BuildContext context) {
+  @override
+  void initState() {
+    super.initState();
+    _currentPost = widget.post;
+  }
+
+  void _showReportDialog() {
+    final user = Supabase.instance.client.auth.currentUser;
+    if (user == null) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('Silakan login untuk melaporkan')),
+      );
+      return;
+    }
+
     showDialog(
       context: context,
-      builder: (context) => ImageFullscreenDialog(
-        imageUrl: widget.post.imageUrl!,
-        post: widget.post,
-        onSaveImage: () => _saveImage(context),
-        onLikeTapped: widget.onLikeToggled,
-        onCommentTapped: () {
-          Navigator.pop(context); // Tutup dialog gambar
-          widget.onCommentTapped(); // Buka komentar
-        },
-        onShareTapped: widget.onShareTapped,
+      builder: (context) => ReportDialog(
+        reportedUserId: widget.post.authorId,
+        postId: widget.post.id,
+        reporterId: user.id,
       ),
     );
   }
 
-  Future<void> _saveImage(BuildContext context) async {
-    if (widget.post.imageUrl == null) return;
-
-    final imageSaver = ImageSaverService();
+  @override
+  Widget build(BuildContext context) {
+    final likeStatusAsync = ref.watch(postLikeStatusProvider(widget.post.id));
     
-    // Tampilkan indikator loading
-    showDialog(
-      context: context,
-      barrierDismissible: false,
-      builder: (context) => const AlertDialog(
-        content: Column(
-          mainAxisSize: MainAxisSize.min,
+    likeStatusAsync.whenData((isLiked) {
+      if (mounted && _currentPost.isLikedByUser != isLiked) {
+        setState(() {
+          final newLikeCount = isLiked 
+              ? _currentPost.likesCount + 1 
+              : _currentPost.likesCount - 1;
+          _currentPost = _currentPost.copyWith(
+            isLikedByUser: isLiked,
+            likesCount: newLikeCount.clamp(0, double.infinity).toInt(),
+          );
+        });
+      }
+    });
+
+    final postsStreamAsync = ref.watch(communityPostsStreamProvider(widget.post.communityId));
+    
+    postsStreamAsync.whenData((posts) {
+      final updatedPost = posts.firstWhere(
+        (p) => p.id == widget.post.id,
+        orElse: () => _currentPost,
+      );
+      if (mounted && 
+          (_currentPost.likesCount != updatedPost.likesCount ||
+           _currentPost.isLikedByUser != updatedPost.isLikedByUser)) {
+        setState(() {
+          _currentPost = updatedPost;
+        });
+      }
+    });
+
+    return Card(
+      elevation: 1,
+      shape: RoundedRectangleBorder(
+        borderRadius: BorderRadius.circular(12),
+      ),
+      margin: EdgeInsets.zero,
+      child: Padding(
+        padding: const EdgeInsets.all(16),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
           children: [
-            CircularProgressIndicator(),
-            SizedBox(height: 16),
-            Text('Menyimpan gambar...'),
+            // Header dengan author info
+            Row(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                InkWell(
+                  onTap: () => _showUserProfile(),
+                  borderRadius: BorderRadius.circular(20),
+                  child: CircleAvatar(
+                    radius: 20,
+                    backgroundColor: Colors.grey[200],
+                    backgroundImage: _currentPost.author?.avatarUrl != null
+                        ? NetworkImage(_currentPost.author!.avatarUrl!)
+                        : null,
+                    child: _currentPost.author?.avatarUrl == null
+                        ? Icon(
+                            Icons.person,
+                            size: 20,
+                            color: Colors.grey[600],
+                          )
+                        : null,
+                  ),
+                ),
+                const SizedBox(width: 12),
+                Expanded(
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      InkWell(
+                        onTap: () => _showUserProfile(),
+                        child: Text(
+                          _currentPost.author?.fullName ?? 'Anonymous',
+                          style: const TextStyle(
+                            fontWeight: FontWeight.bold,
+                            fontSize: 14,
+                          ),
+                        ),
+                      ),
+                      const SizedBox(height: 2),
+                      Row(
+                        children: [
+                          Text(
+                            timeago.format(_currentPost.createdAt, locale: 'en'),
+                            style: TextStyle(
+                              fontSize: 12,
+                              color: Colors.grey[600],
+                            ),
+                          ),
+                          if (_currentPost.isEdited) ...[
+                            const SizedBox(width: 4),
+                            Text(
+                              '• Edited',
+                              style: TextStyle(
+                                fontSize: 12,
+                                color: Colors.grey[600],
+                                fontStyle: FontStyle.italic,
+                              ),
+                            ),
+                          ],
+                        ],
+                      ),
+                    ],
+                  ),
+                ),
+                // More options button
+                PopupMenuButton<String>(
+                  icon: const Icon(Icons.more_vert, size: 20),
+                  color: Colors.grey[600],
+                  onSelected: (value) {
+                    if (value == 'report') {
+                      _showReportDialog();
+                    } else if (value == 'edit' && _currentPost.authorId == widget.userId) {
+                      widget.onMoreTapped();
+                    } else if (value == 'delete' && _currentPost.authorId == widget.userId) {
+                      _confirmDelete();
+                    } else if (value == 'copy') {
+                      _copyPostLink();
+                    } else if (value == 'save_image' && _currentPost.hasImage) {
+                      _saveImage(context);
+                    }
+                  },
+                  itemBuilder: (context) => [
+                    if (_currentPost.authorId == widget.userId) ...[
+                      const PopupMenuItem(
+                        value: 'edit',
+                        child: Row(
+                          children: [
+                            Icon(Icons.edit_outlined, size: 20),
+                            SizedBox(width: 12),
+                            Text('Edit Post'),
+                          ],
+                        ),
+                      ),
+                      const PopupMenuItem(
+                        value: 'delete',
+                        child: Row(
+                          children: [
+                            Icon(Icons.delete_outline, size: 20, color: Colors.red),
+                            SizedBox(width: 12),
+                            Text('Hapus Post', style: TextStyle(color: Colors.red)),
+                          ],
+                        ),
+                      ),
+                      const PopupMenuDivider(),
+                    ],
+                    const PopupMenuItem(
+                      value: 'report',
+                      child: Row(
+                        children: [
+                          Icon(Icons.flag_outlined, size: 20, color: Colors.red),
+                          SizedBox(width: 12),
+                          Text('Laporkan Post', style: TextStyle(color: Colors.red)),
+                        ],
+                      ),
+                    ),
+                    const PopupMenuItem(
+                      value: 'copy',
+                      child: Row(
+                        children: [
+                          Icon(Icons.copy_outlined, size: 20),
+                          SizedBox(width: 12),
+                          Text('Salin Link'),
+                        ],
+                      ),
+                    ),
+                    if (_currentPost.hasImage)
+                      const PopupMenuItem(
+                        value: 'save_image',
+                        child: Row(
+                          children: [
+                            Icon(Icons.download_outlined, size: 20),
+                            SizedBox(width: 12),
+                            Text('Simpan Gambar'),
+                          ],
+                        ),
+                      ),
+                  ],
+                ),
+              ],
+            ),
+            const SizedBox(height: 12),
+            
+            // Post content
+            if (_currentPost.content.isNotEmpty)
+              Padding(
+                padding: const EdgeInsets.only(bottom: 12),
+                child: Text(
+                  _currentPost.content,
+                  style: const TextStyle(
+                    fontSize: 15,
+                    height: 1.4,
+                  ),
+                ),
+              ),
+            
+            // Image
+            if (_currentPost.hasImage) _buildImage(),
+            
+            // Shared indicator
+            if (_currentPost.isShared)
+              Container(
+                margin: const EdgeInsets.only(top: 12),
+                padding: const EdgeInsets.all(12),
+                decoration: BoxDecoration(
+                  color: Colors.grey[50],
+                  borderRadius: BorderRadius.circular(8),
+                  border: Border.all(color: Colors.grey[200]!),
+                ),
+                child: Row(
+                  children: [
+                    Icon(
+                      Icons.repeat,
+                      size: 16,
+                      color: Colors.grey[600],
+                    ),
+                    const SizedBox(width: 8),
+                    Expanded(
+                      child: Text(
+                        'Shared from another community',
+                        style: TextStyle(
+                          fontSize: 12,
+                          color: Colors.grey[600],
+                        ),
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+            
+            const SizedBox(height: 16),
+            _buildStats(),
+            const SizedBox(height: 12),
+            _buildActionButtons(),
           ],
         ),
       ),
     );
+  }
 
-    try {
-      final success = await imageSaver.saveImageToGallery(widget.post.imageUrl!);
-      
-      Navigator.pop(context); // Tutup loading dialog
-      
-      if (success) {
-        // Tampilkan snackbar sukses
-        ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(
-            content: Text('Gambar berhasil disimpan ke galeri'),
-            backgroundColor: Colors.green,
-            duration: Duration(seconds: 2),
-            behavior: SnackBarBehavior.floating,
+  Future<void> _confirmDelete() async {
+    final confirm = await showDialog<bool>(
+      context: context,
+      builder: (context) => AlertDialog(
+        title: const Text('Hapus Post'),
+        content: const Text('Apakah Anda yakin ingin menghapus post ini?'),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(context, false),
+            child: const Text('Batal'),
           ),
-        );
-        
-        // Panggil callback jika ada
-        widget.onImageSaved?.call();
-      } else {
-        // Tampilkan error dialog
-        showDialog(
-          context: context,
-          builder: (context) => AlertDialog(
-            title: const Text('Izin Diperlukan'),
-            content: const Text('Aplikasi membutuhkan izin akses ke galeri untuk menyimpan gambar.'),
-            actions: [
-              TextButton(
-                onPressed: () => Navigator.pop(context),
-                child: const Text('Batal'),
-              ),
-              TextButton(
-                onPressed: () async {
-                  Navigator.pop(context);
-                  await openAppSettings();
-                },
-                child: const Text('Buka Pengaturan'),
-              ),
-            ],
+          TextButton(
+            onPressed: () => Navigator.pop(context, true),
+            child: const Text('Hapus', style: TextStyle(color: Colors.red)),
           ),
-        );
-      }
-    } catch (e) {
-      Navigator.pop(context); // Tutup loading dialog
-      
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(
-          content: Text('Gagal menyimpan gambar: ${e.toString()}'),
-          backgroundColor: Colors.red,
-          duration: const Duration(seconds: 3),
-          behavior: SnackBarBehavior.floating,
-        ),
-      );
+        ],
+      ),
+    );
+
+    if (confirm == true) {
+      widget.onMoreTapped();
     }
+  }
+
+  void _copyPostLink() {
+    // Implement copy link
+    ScaffoldMessenger.of(context).showSnackBar(
+      const SnackBar(content: Text('Link disalin ke clipboard')),
+    );
+  }
+
+  void _showUserProfile() {
+    // TODO: Implement user profile navigation
   }
 
   Widget _buildImage() {
@@ -139,7 +353,7 @@ class _PostCardState extends State<PostCard> {
                 maxHeight: 300,
               ),
               child: Image.network(
-                widget.post.imageUrl!,
+                _currentPost.imageUrl!,
                 width: double.infinity,
                 fit: BoxFit.cover,
                 loadingBuilder: (context, child, loadingProgress) {
@@ -200,160 +414,24 @@ class _PostCardState extends State<PostCard> {
             ),
           ),
           
-          // Overlay untuk indikator bisa diklik (hanya muncul saat tidak loading)
+          // Overlay untuk indikator bisa diklik
           if (!_isImageLoading)
             Positioned.fill(
               child: Container(
                 decoration: BoxDecoration(
                   borderRadius: BorderRadius.circular(8),
-                  color: Colors.black.withOpacity(0.3),
+                  color: Colors.black.withValues(alpha: 0.3),
+                ),
+                child: const Center(
+                  child: Icon(
+                    Icons.fullscreen,
+                    color: Colors.white,
+                    size: 40,
+                  ),
                 ),
               ),
             ),
         ],
-      ),
-    );
-  }
-
-  @override
-  Widget build(BuildContext context) {
-    return Card(
-      elevation: 1,
-      shape: RoundedRectangleBorder(
-        borderRadius: BorderRadius.circular(12),
-      ),
-      margin: EdgeInsets.zero,
-      child: Padding(
-        padding: const EdgeInsets.all(16),
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            // Header dengan author info
-            Row(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                // Avatar
-                CircleAvatar(
-                  radius: 20,
-                  backgroundColor: Colors.grey[200],
-                  backgroundImage: widget.post.author?.avatarUrl != null
-                      ? NetworkImage(widget.post.author!.avatarUrl!)
-                      : null,
-                  child: widget.post.author?.avatarUrl == null
-                      ? Icon(
-                          Icons.person,
-                          size: 20,
-                          color: Colors.grey[600],
-                        )
-                      : null,
-                ),
-                const SizedBox(width: 12),
-                
-                // Author info dan timestamp
-                Expanded(
-                  child: Column(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: [
-                      Text(
-                        widget.post.author?.fullName ?? 'Anonymous',
-                        style: const TextStyle(
-                          fontWeight: FontWeight.bold,
-                          fontSize: 14,
-                        ),
-                      ),
-                      const SizedBox(height: 2),
-                      Row(
-                        children: [
-                          Text(
-                            timeago.format(widget.post.createdAt, locale: 'en'),
-                            style: TextStyle(
-                              fontSize: 12,
-                              color: Colors.grey[600],
-                            ),
-                          ),
-                          if (widget.post.isEdited) ...[
-                            const SizedBox(width: 4),
-                            Text(
-                              '• Edited',
-                              style: TextStyle(
-                                fontSize: 12,
-                                color: Colors.grey[600],
-                                fontStyle: FontStyle.italic,
-                              ),
-                            ),
-                          ],
-                        ],
-                      ),
-                    ],
-                  ),
-                ),
-                
-                // More options button
-                IconButton(
-                  icon: const Icon(Icons.more_vert, size: 20),
-                  onPressed: widget.onMoreTapped,
-                  color: Colors.grey[600],
-                  padding: EdgeInsets.zero,
-                  constraints: const BoxConstraints(),
-                ),
-              ],
-            ),
-            const SizedBox(height: 12),
-            
-            // Post content
-            if (widget.post.content.isNotEmpty)
-              Padding(
-                padding: const EdgeInsets.only(bottom: 12),
-                child: Text(
-                  widget.post.content,
-                  style: const TextStyle(
-                    fontSize: 15,
-                    height: 1.4,
-                  ),
-                ),
-              ),
-            
-            // Image
-            if (widget.post.hasImage) _buildImage(),
-            
-            // Shared indicator
-            if (widget.post.isShared)
-              Container(
-                margin: const EdgeInsets.only(top: 12),
-                padding: const EdgeInsets.all(12),
-                decoration: BoxDecoration(
-                  color: Colors.grey[50],
-                  borderRadius: BorderRadius.circular(8),
-                  border: Border.all(color: Colors.grey[200]!),
-                ),
-                child: Row(
-                  children: [
-                    Icon(
-                      Icons.repeat,
-                      size: 16,
-                      color: Colors.grey[600],
-                    ),
-                    const SizedBox(width: 8),
-                    Expanded(
-                      child: Text(
-                        'Shared from another community',
-                        style: TextStyle(
-                          fontSize: 12,
-                          color: Colors.grey[600],
-                        ),
-                      ),
-                    ),
-                  ],
-                ),
-              ),
-            
-            // Stats dan actions
-            const SizedBox(height: 16),
-            _buildStats(),
-            const SizedBox(height: 12),
-            _buildActionButtons(),
-          ],
-        ),
       ),
     );
   }
@@ -361,23 +439,44 @@ class _PostCardState extends State<PostCard> {
   Widget _buildStats() {
     return Row(
       children: [
-        if (widget.post.likesCount > 0) ...[
-          Icon(
-            Icons.favorite,
-            size: 16,
-            color: Colors.red[400],
+        if (_currentPost.likesCount > 0) ...[
+          AnimatedSwitcher(
+            duration: const Duration(milliseconds: 300),
+            transitionBuilder: (child, animation) {
+              return ScaleTransition(scale: animation, child: child);
+            },
+            child: Icon(
+              Icons.favorite,
+              size: 16,
+              color: Colors.red[400],
+              key: ValueKey(_currentPost.likesCount),
+            ),
           ),
           const SizedBox(width: 4),
-          Text(
-            _formatNumber(widget.post.likesCount),
-            style: TextStyle(
-              fontSize: 12,
-              color: Colors.grey[600],
+          AnimatedSwitcher(
+            duration: const Duration(milliseconds: 300),
+            transitionBuilder: (child, animation) {
+              return SlideTransition(
+                position: Tween<Offset>(
+                  begin: const Offset(0, 0.5),
+                  end: Offset.zero,
+                ).animate(animation),
+                child: child,
+              );
+            },
+            child: Text(
+              _formatNumber(_currentPost.likesCount),
+              key: ValueKey(_currentPost.likesCount),
+              style: TextStyle(
+                fontSize: 12,
+                color: Colors.grey[600],
+                fontWeight: FontWeight.w500,
+              ),
             ),
           ),
           const SizedBox(width: 16),
         ],
-        if (widget.post.commentsCount > 0) ...[
+        if (_currentPost.commentsCount > 0) ...[
           Icon(
             Icons.comment,
             size: 16,
@@ -385,7 +484,7 @@ class _PostCardState extends State<PostCard> {
           ),
           const SizedBox(width: 4),
           Text(
-            _formatNumber(widget.post.commentsCount),
+            _formatNumber(_currentPost.commentsCount),
             style: TextStyle(
               fontSize: 12,
               color: Colors.grey[600],
@@ -393,7 +492,7 @@ class _PostCardState extends State<PostCard> {
           ),
           const SizedBox(width: 16),
         ],
-        if (widget.post.shareCount > 0) ...[
+        if (_currentPost.shareCount > 0) ...[
           Icon(
             Icons.share,
             size: 16,
@@ -401,7 +500,7 @@ class _PostCardState extends State<PostCard> {
           ),
           const SizedBox(width: 4),
           Text(
-            _formatNumber(widget.post.shareCount),
+            _formatNumber(_currentPost.shareCount),
             style: TextStyle(
               fontSize: 12,
               color: Colors.grey[600],
@@ -410,7 +509,7 @@ class _PostCardState extends State<PostCard> {
         ],
         const Spacer(),
         Text(
-          '${widget.post.viewCount} views',
+          '${_currentPost.viewCount} views',
           style: TextStyle(
             fontSize: 12,
             color: Colors.grey[600],
@@ -421,6 +520,8 @@ class _PostCardState extends State<PostCard> {
   }
 
   Widget _buildActionButtons() {
+    final isLiked = _currentPost.isLikedByUser ?? false;
+    
     return Container(
       decoration: BoxDecoration(
         border: Border(
@@ -430,22 +531,41 @@ class _PostCardState extends State<PostCard> {
       ),
       child: Row(
         children: [
-          // Like button
+          // Like button with animation
           Expanded(
             child: TextButton.icon(
-              onPressed: widget.onLikeToggled,
-              icon: Icon(
-                widget.post.isLikedByUser == true
-                    ? Icons.favorite
-                    : Icons.favorite_border,
-                color: widget.post.isLikedByUser == true ? Colors.red : Colors.grey[600],
-                size: 20,
-              ),
-              label: Text(
-                'Like',
-                style: TextStyle(
-                  color: widget.post.isLikedByUser == true ? Colors.red : Colors.grey[600],
+              onPressed: () {
+                setState(() {
+                  final newIsLiked = !isLiked;
+                  final newLikeCount = newIsLiked 
+                      ? _currentPost.likesCount + 1 
+                      : _currentPost.likesCount - 1;
+                  _currentPost = _currentPost.copyWith(
+                    isLikedByUser: newIsLiked,
+                    likesCount: newLikeCount.clamp(0, double.infinity).toInt(),
+                  );
+                });
+                widget.onLikeToggled();
+              },
+              icon: AnimatedSwitcher(
+                duration: const Duration(milliseconds: 200),
+                transitionBuilder: (child, animation) {
+                  return ScaleTransition(scale: animation, child: child);
+                },
+                child: Icon(
+                  isLiked ? Icons.favorite : Icons.favorite_border,
+                  key: ValueKey(isLiked),
+                  color: isLiked ? Colors.red : Colors.grey[600],
+                  size: 20,
                 ),
+              ),
+              label: AnimatedDefaultTextStyle(
+                duration: const Duration(milliseconds: 200),
+                style: TextStyle(
+                  color: isLiked ? Colors.red : Colors.grey[600],
+                  fontWeight: isLiked ? FontWeight.w600 : FontWeight.normal,
+                ),
+                child: const Text('Like'),
               ),
               style: TextButton.styleFrom(
                 padding: const EdgeInsets.symmetric(vertical: 12),
@@ -504,6 +624,104 @@ class _PostCardState extends State<PostCard> {
     );
   }
 
+  void _showImageFullscreen(BuildContext context) {
+    showDialog(
+      context: context,
+      builder: (context) => ImageFullscreenDialog(
+        imageUrl: _currentPost.imageUrl!,
+        post: _currentPost,
+        onSaveImage: () => _saveImage(context),
+        onLikeTapped: () {
+          widget.onLikeToggled();
+        },
+        onCommentTapped: () {
+          Navigator.pop(context);
+          widget.onCommentTapped();
+        },
+        onShareTapped: widget.onShareTapped,
+      ),
+    );
+  }
+
+  Future<void> _saveImage(BuildContext context) async {
+    if (_currentPost.imageUrl == null) return;
+
+    final imageSaver = ImageSaverService();
+    
+    if (!mounted) return;
+    showDialog(
+      context: context,
+      barrierDismissible: false,
+      builder: (context) => const AlertDialog(
+        content: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            CircularProgressIndicator(),
+            SizedBox(height: 16),
+            Text('Menyimpan gambar...'),
+          ],
+        ),
+      ),
+    );
+
+    try {
+      final success = await imageSaver.saveImageToGallery(_currentPost.imageUrl!);
+      
+      if (!mounted) return;
+      Navigator.pop(context);
+      
+      if (success) {
+        if (!mounted) return;
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(
+            content: Text('Gambar berhasil disimpan ke galeri'),
+            backgroundColor: Colors.green,
+            duration: Duration(seconds: 2),
+            behavior: SnackBarBehavior.floating,
+          ),
+        );
+        widget.onImageSaved?.call();
+      } else {
+        if (!mounted) return;
+        showDialog(
+          context: context,
+          builder: (context) => AlertDialog(
+            title: const Text('Izin Diperlukan'),
+            content: const Text(
+              'Aplikasi membutuhkan izin akses ke galeri untuk menyimpan gambar.',
+            ),
+            actions: [
+              TextButton(
+                onPressed: () => Navigator.pop(context),
+                child: const Text('Batal'),
+              ),
+              TextButton(
+                onPressed: () async {
+                  Navigator.pop(context);
+                  await openAppSettings();
+                },
+                child: const Text('Buka Pengaturan'),
+              ),
+            ],
+          ),
+        );
+      }
+    } catch (e) {
+      if (!mounted) return;
+      Navigator.pop(context);
+      
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text('Gagal menyimpan gambar: ${e.toString()}'),
+          backgroundColor: Colors.red,
+          duration: const Duration(seconds: 3),
+          behavior: SnackBarBehavior.floating,
+        ),
+      );
+    }
+  }
+
   String _formatNumber(int number) {
     if (number >= 1000000) {
       return '${(number / 1000000).toStringAsFixed(1)}M';
@@ -514,7 +732,6 @@ class _PostCardState extends State<PostCard> {
   }
 }
 
-// Dialog untuk fullscreen image
 // Dialog untuk fullscreen image
 class ImageFullscreenDialog extends StatefulWidget {
   final String imageUrl;
@@ -557,7 +774,6 @@ class _ImageFullscreenDialogState extends State<ImageFullscreenDialog> {
       backgroundColor: Colors.black,
       child: Stack(
         children: [
-          // Photo View untuk zoom dan pan
           PhotoView(
             imageProvider: NetworkImage(widget.imageUrl),
             loadingBuilder: (context, event) {
@@ -605,14 +821,14 @@ class _ImageFullscreenDialogState extends State<ImageFullscreenDialog> {
             heroAttributes: PhotoViewHeroAttributes(tag: widget.imageUrl),
           ),
 
-          // App Bar Custom (top) dengan tombol close dan save
+          // App Bar Custom (top)
           Positioned(
             top: MediaQuery.of(context).padding.top,
             left: 0,
             right: 0,
             child: Container(
               height: 56,
-              color: Colors.black.withOpacity(0.5),
+              color: Colors.black.withValues(alpha: 0.5),
               child: Row(
                 children: [
                   IconButton(
@@ -635,7 +851,7 @@ class _ImageFullscreenDialogState extends State<ImageFullscreenDialog> {
             ),
           ),
 
-          // Bottom bar untuk tombol aksi (SINGLE BARIS seperti di post card)
+          // Bottom bar
           Positioned(
             bottom: 0,
             left: 0,
@@ -647,15 +863,14 @@ class _ImageFullscreenDialogState extends State<ImageFullscreenDialog> {
                   begin: Alignment.bottomCenter,
                   end: Alignment.topCenter,
                   colors: [
-                    Colors.black.withOpacity(0.9),
-                    Colors.black.withOpacity(0.6),
+                    Colors.black.withValues(alpha: 0.9),
+                    Colors.black.withValues(alpha: 0.6),
                     Colors.transparent,
                   ],
                 ),
               ),
               child: Row(
                 children: [
-                  // Like button
                   Expanded(
                     child: _buildBottomBarButton(
                       icon: _isLiked ? Icons.favorite : Icons.favorite_border,
@@ -663,18 +878,16 @@ class _ImageFullscreenDialogState extends State<ImageFullscreenDialog> {
                       count: _likesCount,
                       isActive: _isLiked,
                       onTap: () {
-                        widget.onLikeTapped?.call();
                         setState(() {
                           _isLiked = !_isLiked;
                           _likesCount = _isLiked 
                               ? _likesCount + 1 
                               : _likesCount - 1;
                         });
+                        widget.onLikeTapped?.call();
                       },
                     ),
                   ),
-                  
-                  // Comment button
                   Expanded(
                     child: _buildBottomBarButton(
                       icon: Icons.comment_outlined,
@@ -685,8 +898,6 @@ class _ImageFullscreenDialogState extends State<ImageFullscreenDialog> {
                       },
                     ),
                   ),
-                  
-                  // Share button
                   Expanded(
                     child: _buildBottomBarButton(
                       icon: Icons.share_outlined,
@@ -697,8 +908,6 @@ class _ImageFullscreenDialogState extends State<ImageFullscreenDialog> {
                       },
                     ),
                   ),
-                  
-                  // Save button
                   Expanded(
                     child: _buildBottomBarButton(
                       icon: Icons.download_outlined,
@@ -712,11 +921,10 @@ class _ImageFullscreenDialogState extends State<ImageFullscreenDialog> {
             ),
           ),
 
-          // Loading overlay untuk save
           if (_isSaving)
             Positioned.fill(
               child: Container(
-                color: Colors.black.withOpacity(0.7),
+                color: Colors.black.withValues(alpha: 0.7),
                 child: const Center(
                   child: Column(
                     mainAxisAlignment: MainAxisAlignment.center,
@@ -796,15 +1004,6 @@ class _ImageFullscreenDialogState extends State<ImageFullscreenDialog> {
     );
   }
 
-  String _formatCount(int count) {
-    if (count >= 1000000) {
-      return '${(count / 1000000).toStringAsFixed(1)}M';
-    } else if (count >= 1000) {
-      return '${(count / 1000).toStringAsFixed(1)}K';
-    }
-    return count.toString();
-  }
-
   Future<void> _saveImage() async {
     setState(() => _isSaving = true);
     
@@ -814,10 +1013,7 @@ class _ImageFullscreenDialogState extends State<ImageFullscreenDialog> {
       
       if (mounted) {
         if (success) {
-          // Panggil callback untuk notifikasi di parent
           widget.onSaveImage();
-          
-          // Tampilkan snackbar sukses
           ScaffoldMessenger.of(context).showSnackBar(
             const SnackBar(
               content: Text('Gambar berhasil disimpan ke galeri!'),
@@ -870,36 +1066,5 @@ class _ImageFullscreenDialogState extends State<ImageFullscreenDialog> {
         ],
       ),
     );
-  }
-
-  Future<void> _shareImage() async {
-    try {
-      await Share.share(
-        widget.imageUrl,
-        subject: 'Gambar dari PureWill Community - ${widget.post.author?.fullName}',
-      );
-    } catch (e) {
-      if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(
-            content: Text('Gagal membagikan: ${e.toString()}'),
-            backgroundColor: Colors.red,
-          ),
-        );
-      }
-    }
-  }
-
-  Future<void> _copyImageLink() async {
-    await Clipboard.setData(ClipboardData(text: widget.imageUrl));
-    
-    if (mounted) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(
-          content: Text('Link gambar disalin ke clipboard'),
-          backgroundColor: Colors.green,
-        ),
-      );
-    }
   }
 }

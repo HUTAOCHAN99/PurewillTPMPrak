@@ -1,9 +1,10 @@
-// lib\ui\habit-tracker\screen\community_selection_screen.dart
+// lib/ui/habit-tracker/screen/community_selection_screen.dart
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
-import 'package:purewill/data/services/community/index.dart';
+import 'package:purewill/data/services/community/community_service.dart';
 import 'package:purewill/domain/model/community_model.dart';
 import 'package:purewill/ui/habit-tracker/screen/community_detail_screen.dart';
+import 'package:purewill/ui/habit-tracker/screen/community_search_delegate.dart';
 import 'package:purewill/ui/habit-tracker/screen/consultation_screen.dart';
 import 'package:purewill/ui/habit-tracker/screen/habit_screen.dart';
 import 'package:purewill/ui/habit-tracker/screen/home_screen.dart';
@@ -191,6 +192,17 @@ class _CommunitySelectionScreenState extends ConsumerState<CommunitySelectionScr
     );
   }
 
+  void _openSearch() async {
+    final result = await showSearch<Community?>(
+      context: context,
+      delegate: CommunitySearchDelegate(currentUserId: _currentUserId),
+    );
+    
+    if (result != null && mounted) {
+      _showConfirmationDialog(result);
+    }
+  }
+
   Widget _buildJoinedCommunityCard(Community community) {
     return Card(
       elevation: 3,
@@ -239,7 +251,7 @@ class _CommunitySelectionScreenState extends ConsumerState<CommunitySelectionScr
                   ),
                   const SizedBox(width: 4),
                   Text(
-                    '${community.memberCount}',
+                    _formatNumber(community.memberCount),
                     style: TextStyle(
                       fontSize: 11,
                       color: Colors.grey[600],
@@ -332,7 +344,7 @@ class _CommunitySelectionScreenState extends ConsumerState<CommunitySelectionScr
                         ),
                         const SizedBox(width: 4),
                         Text(
-                          '${community.memberCount} anggota',
+                          '${_formatNumber(community.memberCount)} anggota',
                           style: TextStyle(
                             fontSize: 12,
                             color: Colors.grey[600],
@@ -353,6 +365,15 @@ class _CommunitySelectionScreenState extends ConsumerState<CommunitySelectionScr
         ),
       ),
     );
+  }
+
+  String _formatNumber(int number) {
+    if (number >= 1000000) {
+      return '${(number / 1000000).toStringAsFixed(1)}M';
+    } else if (number >= 1000) {
+      return '${(number / 1000).toStringAsFixed(1)}K';
+    }
+    return number.toString();
   }
 
   Color _getColorFromHex(String hexColor) {
@@ -389,163 +410,17 @@ class _CommunitySelectionScreenState extends ConsumerState<CommunitySelectionScr
         return Icons.water_drop;
       case 'sports_esports':
         return Icons.sports_esports;
+      case 'language':
+        return Icons.language;
+      case 'phone_disabled':
+        return Icons.phone_disabled;
+      case 'edit':
+        return Icons.edit;
+      case 'schedule':
+        return Icons.schedule;
       default:
         return Icons.people;
     }
-  }
-
-  @override
-  Widget build(BuildContext context) {
-    final communitiesAsync = ref.watch(communitiesProvider);
-
-    return Scaffold(
-      appBar: AppBar(
-        backgroundColor: Colors.white,
-        elevation: 0,
-        title: const Text(
-          'Komunitas',
-          style: TextStyle(
-            fontSize: 24,
-            fontWeight: FontWeight.bold,
-            color: Colors.black87,
-          ),
-        ),
-        actions: [
-          IconButton(
-            onPressed: () {
-              // Implement search functionality
-              showDialog(
-                context: context,
-                builder: (context) => AlertDialog(
-                  title: const Text('Pencarian'),
-                  content: const Text('Fitur pencarian akan segera hadir!'),
-                  actions: [
-                    TextButton(
-                      onPressed: () => Navigator.pop(context),
-                      child: const Text('OK'),
-                    ),
-                  ],
-                ),
-              );
-            },
-            icon: const Icon(Icons.search, size: 28),
-            color: Colors.grey[600],
-          ),
-        ],
-      ),
-      body: Container(
-        decoration: const BoxDecoration(
-          gradient: LinearGradient(
-            begin: Alignment.topCenter,
-            end: Alignment.bottomCenter,
-            colors: [
-              Color(0xFFF5F5F5),
-              Color(0xFFE8F4F8),
-            ],
-          ),
-        ),
-        child: SafeArea(
-          child: Column(
-            children: [
-              Expanded(
-                child: communitiesAsync.when(
-                  data: (communities) {
-                    final joinedCommunities = communities
-                        .where((c) => c.isJoined)
-                        .toList();
-                    
-                    final availableCommunities = communities
-                        .where((c) => !c.isJoined)
-                        .toList();
-
-                    return SingleChildScrollView(
-                      padding: const EdgeInsets.all(16),
-                      child: Column(
-                        crossAxisAlignment: CrossAxisAlignment.start,
-                        children: [
-                          // Section: Komunitas yang Diikuti
-                          if (joinedCommunities.isNotEmpty) ...[
-                            _buildSectionTitle(
-                              'Komunitas Anda',
-                              '${joinedCommunities.length} komunitas',
-                            ),
-                            const SizedBox(height: 12),
-                            GridView.builder(
-                              shrinkWrap: true,
-                              physics: const NeverScrollableScrollPhysics(),
-                              gridDelegate: const SliverGridDelegateWithFixedCrossAxisCount(
-                                crossAxisCount: 2,
-                                crossAxisSpacing: 12,
-                                mainAxisSpacing: 12,
-                                childAspectRatio: 1.2,
-                              ),
-                              itemCount: joinedCommunities.length,
-                              itemBuilder: (context, index) {
-                                return _buildJoinedCommunityCard(joinedCommunities[index]);
-                              },
-                            ),
-                            const SizedBox(height: 24),
-                          ],
-
-                          // Section: Temukan Komunitas Lain
-                          _buildSectionTitle(
-                            'Temukan Komunitas',
-                            '${availableCommunities.length} komunitas tersedia',
-                          ),
-                          const SizedBox(height: 12),
-                          availableCommunities.isEmpty
-                              ? const Padding(
-                                  padding: EdgeInsets.all(16),
-                                  child: Text(
-                                    'Tidak ada komunitas yang tersedia untuk saat ini',
-                                    textAlign: TextAlign.center,
-                                    style: TextStyle(color: Colors.grey),
-                                  ),
-                                )
-                              : ListView.separated(
-                                  shrinkWrap: true,
-                                  physics: const NeverScrollableScrollPhysics(),
-                                  itemCount: availableCommunities.length,
-                                  separatorBuilder: (context, index) => const SizedBox(height: 12),
-                                  itemBuilder: (context, index) {
-                                    return _buildAvailableCommunityCard(availableCommunities[index]);
-                                  },
-                                ),
-                        ],
-                      ),
-                    );
-                  },
-                  loading: () => const Center(child: CircularProgressIndicator()),
-                  error: (error, stack) => Center(
-                    child: Column(
-                      mainAxisAlignment: MainAxisAlignment.center,
-                      children: [
-                        const Icon(Icons.error_outline, size: 50, color: Colors.red),
-                        const SizedBox(height: 16),
-                        Text(
-                          'Error: $error',
-                          textAlign: TextAlign.center,
-                          style: const TextStyle(color: Colors.red),
-                        ),
-                        const SizedBox(height: 16),
-                        ElevatedButton(
-                          onPressed: () => ref.invalidate(communitiesProvider),
-                          child: const Text('Coba Lagi'),
-                        ),
-                      ],
-                    ),
-                  ),
-                ),
-              ),
-            ],
-          ),
-        ),
-      ),
-      bottomNavigationBar: CleanBottomNavigationBar(
-        currentIndex: _currentIndex,
-        onTap: _onNavBarTap,
-      ),
-    );
   }
 
   Widget _buildSectionTitle(String title, String subtitle) {
@@ -569,6 +444,164 @@ class _CommunitySelectionScreenState extends ConsumerState<CommunitySelectionScr
           ),
         ),
       ],
+    );
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final communitiesAsync = ref.watch(communitiesProvider);
+
+    return Scaffold(
+      appBar: AppBar(
+        backgroundColor: Colors.white,
+        elevation: 0,
+        title: const Text(
+          'Komunitas',
+          style: TextStyle(
+            fontSize: 24,
+            fontWeight: FontWeight.bold,
+            color: Colors.black87,
+          ),
+        ),
+        actions: [
+          IconButton(
+            onPressed: _openSearch,
+            icon: const Icon(Icons.search, size: 28),
+            color: Colors.grey[600],
+            tooltip: 'Cari komunitas',
+          ),
+        ],
+      ),
+      body: Container(
+        decoration: const BoxDecoration(
+          gradient: LinearGradient(
+            begin: Alignment.topCenter,
+            end: Alignment.bottomCenter,
+            colors: [
+              Color(0xFFF5F5F5),
+              Color(0xFFE8F4F8),
+            ],
+          ),
+        ),
+        child: SafeArea(
+          child: communitiesAsync.when(
+            data: (communities) {
+              final joinedCommunities = communities
+                  .where((c) => c.isJoined)
+                  .toList();
+              
+              final availableCommunities = communities
+                  .where((c) => !c.isJoined)
+                  .toList();
+
+              return SingleChildScrollView(
+                padding: const EdgeInsets.all(16),
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    // Section: Komunitas yang Diikuti
+                    if (joinedCommunities.isNotEmpty) ...[
+                      _buildSectionTitle(
+                        'Komunitas Anda',
+                        '${joinedCommunities.length} komunitas',
+                      ),
+                      const SizedBox(height: 12),
+                      GridView.builder(
+                        shrinkWrap: true,
+                        physics: const NeverScrollableScrollPhysics(),
+                        gridDelegate: const SliverGridDelegateWithFixedCrossAxisCount(
+                          crossAxisCount: 2,
+                          crossAxisSpacing: 12,
+                          mainAxisSpacing: 12,
+                          childAspectRatio: 1.2,
+                        ),
+                        itemCount: joinedCommunities.length,
+                        itemBuilder: (context, index) {
+                          return _buildJoinedCommunityCard(joinedCommunities[index]);
+                        },
+                      ),
+                      const SizedBox(height: 24),
+                    ],
+
+                    // Section: Temukan Komunitas Lain
+                    _buildSectionTitle(
+                      'Temukan Komunitas',
+                      '${availableCommunities.length} komunitas tersedia',
+                    ),
+                    const SizedBox(height: 12),
+                    if (availableCommunities.isEmpty)
+                      const Padding(
+                        padding: EdgeInsets.all(32),
+                        child: Center(
+                          child: Column(
+                            children: [
+                              Icon(Icons.group_off, size: 64, color: Colors.grey),
+                              SizedBox(height: 16),
+                              Text(
+                                'Belum ada komunitas yang tersedia',
+                                style: TextStyle(color: Colors.grey),
+                                textAlign: TextAlign.center,
+                              ),
+                            ],
+                          ),
+                        ),
+                      )
+                    else
+                      ListView.separated(
+                        shrinkWrap: true,
+                        physics: const NeverScrollableScrollPhysics(),
+                        itemCount: availableCommunities.length,
+                        separatorBuilder: (context, index) => const SizedBox(height: 12),
+                        itemBuilder: (context, index) {
+                          return _buildAvailableCommunityCard(availableCommunities[index]);
+                        },
+                      ),
+                    
+                    const SizedBox(height: 80), // Extra space for bottom nav
+                  ],
+                ),
+              );
+            },
+            loading: () => const Center(
+              child: Column(
+                mainAxisAlignment: MainAxisAlignment.center,
+                children: [
+                  CircularProgressIndicator(),
+                  SizedBox(height: 16),
+                  Text('Memuat komunitas...'),
+                ],
+              ),
+            ),
+            error: (error, stack) => Center(
+              child: Column(
+                mainAxisAlignment: MainAxisAlignment.center,
+                children: [
+                  const Icon(Icons.error_outline, size: 50, color: Colors.red),
+                  const SizedBox(height: 16),
+                  Text(
+                    'Error: $error',
+                    textAlign: TextAlign.center,
+                    style: const TextStyle(color: Colors.red),
+                  ),
+                  const SizedBox(height: 16),
+                  ElevatedButton(
+                    onPressed: () => ref.invalidate(communitiesProvider),
+                    style: ElevatedButton.styleFrom(
+                      backgroundColor: Colors.blue,
+                      foregroundColor: Colors.white,
+                    ),
+                    child: const Text('Coba Lagi'),
+                  ),
+                ],
+              ),
+            ),
+          ),
+        ),
+      ),
+      bottomNavigationBar: CleanBottomNavigationBar(
+        currentIndex: _currentIndex,
+        onTap: _onNavBarTap,
+      ),
     );
   }
 }

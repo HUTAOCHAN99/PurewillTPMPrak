@@ -1,8 +1,17 @@
-// lib/ui/admin/screens/admin_dashboard_screen.dart
+// lib/ui/admin/admin_dashboard_screen.dart
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'package:purewill/data/services/community/report_service.dart';
+import 'package:purewill/ui/admin/admin_reports_screen.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
 import 'package:purewill/data/services/doctor/doctor_activation_service.dart';
+
+// Import for report provider
+final pendingReportsCountProvider = FutureProvider.autoDispose<int>((ref) async {
+  final supabase = Supabase.instance.client;
+  final reportService = ReportService();
+  return await reportService.getPendingReportsCount();
+});
 
 class AdminDashboardScreen extends ConsumerStatefulWidget {
   const AdminDashboardScreen({super.key});
@@ -18,6 +27,7 @@ class AdminDashboardScreenState extends ConsumerState<AdminDashboardScreen> {
   List<Map<String, dynamic>> _pendingRequests = [];
   int _activeUsers = 0;
   int _totalDoctors = 0;
+  int _pendingReports = 0;
 
   @override
   void initState() {
@@ -53,7 +63,7 @@ class AdminDashboardScreenState extends ConsumerState<AdminDashboardScreen> {
       final service = ref.read(doctorActivationServiceProvider);
       final requests = await service.getPendingRequests();
 
-      // Get active users count - cara yang benar untuk count
+      // Get active users count
       final usersResponse = await _supabase
           .from('profiles')
           .select('*')
@@ -65,11 +75,16 @@ class AdminDashboardScreenState extends ConsumerState<AdminDashboardScreen> {
           .select('*')
           .eq('role', 'doctor');
 
+      // Get pending reports count
+      final reportService = ReportService();
+      final pendingReportsCount = await reportService.getPendingReportsCount();
+
       if (mounted) {
         setState(() {
           _pendingRequests = requests;
-          _activeUsers = usersResponse.length; // Gunakan .length
-          _totalDoctors = doctorsResponse.length; // Gunakan .length
+          _activeUsers = usersResponse.length;
+          _totalDoctors = doctorsResponse.length;
+          _pendingReports = pendingReportsCount;
           _isLoading = false;
         });
       }
@@ -159,7 +174,7 @@ class AdminDashboardScreenState extends ConsumerState<AdminDashboardScreen> {
           ),
           IconButton(
             icon: const Icon(Icons.logout),
-            onPressed: () => _logout(context), // Tambahkan context
+            onPressed: () => _logout(context),
           ),
         ],
       ),
@@ -206,17 +221,25 @@ class AdminDashboardScreenState extends ConsumerState<AdminDashboardScreen> {
               Row(
                 children: [
                   _buildStatCard(
+                    title: 'Pending Reports',
+                    value: _pendingReports.toString(),
+                    icon: Icons.flag,
+                    color: Colors.red,
+                    onTap: () {
+                      Navigator.push(
+                        context,
+                        MaterialPageRoute(
+                          builder: (context) => const AdminReportsScreen(),
+                        ),
+                      );
+                    },
+                  ),
+                  const SizedBox(width: 16),
+                  _buildStatCard(
                     title: 'Pending Requests',
                     value: _pendingRequests.length.toString(),
                     icon: Icons.pending_actions,
                     color: Colors.orange,
-                  ),
-                  const SizedBox(width: 16),
-                  _buildStatCard(
-                    title: 'Today',
-                    value: DateTime.now().day.toString(),
-                    icon: Icons.calendar_today,
-                    color: Colors.purple,
                   ),
                 ],
               ),
@@ -244,41 +267,45 @@ class AdminDashboardScreenState extends ConsumerState<AdminDashboardScreen> {
     required String value,
     required IconData icon,
     required Color color,
+    VoidCallback? onTap,
   }) {
     return Expanded(
-      child: Container(
-        padding: const EdgeInsets.all(16),
-        decoration: BoxDecoration(
-          color: _withOpacity(color, 0.1),
-          borderRadius: BorderRadius.circular(12),
-          border: Border.all(color: _withOpacity(color, 0.3)),
-        ),
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            Row(
-              mainAxisAlignment: MainAxisAlignment.spaceBetween,
-              children: [
-                Icon(icon, color: color, size: 24),
-                Text(
-                  value,
-                  style: TextStyle(
-                    fontSize: 24,
-                    fontWeight: FontWeight.bold,
-                    color: color,
+      child: GestureDetector(
+        onTap: onTap,
+        child: Container(
+          padding: const EdgeInsets.all(16),
+          decoration: BoxDecoration(
+            color: _withOpacity(color, 0.1),
+            borderRadius: BorderRadius.circular(12),
+            border: Border.all(color: _withOpacity(color, 0.3)),
+          ),
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Row(
+                mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                children: [
+                  Icon(icon, color: color, size: 24),
+                  Text(
+                    value,
+                    style: TextStyle(
+                      fontSize: 24,
+                      fontWeight: FontWeight.bold,
+                      color: color,
+                    ),
                   ),
-                ),
-              ],
-            ),
-            const SizedBox(height: 8),
-            Text(
-              title,
-              style: TextStyle(
-                color: Colors.grey[700],
-                fontSize: 14,
+                ],
               ),
-            ),
-          ],
+              const SizedBox(height: 8),
+              Text(
+                title,
+                style: TextStyle(
+                  color: Colors.grey[700],
+                  fontSize: 14,
+                ),
+              ),
+            ],
+          ),
         ),
       ),
     );
@@ -301,7 +328,7 @@ class AdminDashboardScreenState extends ConsumerState<AdminDashboardScreen> {
         ListView.builder(
           shrinkWrap: true,
           physics: const NeverScrollableScrollPhysics(),
-          itemCount: _pendingRequests.length,
+          itemCount: _pendingRequests.length > 3 ? 3 : _pendingRequests.length,
           itemBuilder: (context, index) {
             final request = _pendingRequests[index];
             return _buildRequestCard(request);
@@ -312,12 +339,6 @@ class AdminDashboardScreenState extends ConsumerState<AdminDashboardScreen> {
           width: double.infinity,
           child: ElevatedButton(
             onPressed: () {
-              // Navigator.push(
-              //   context,
-              //   MaterialPageRoute(
-              //     builder: (context) => const DoctorActivationRequestsScreen(),
-              //   ),
-              // );
               _showComingSoonSnackbar(context, 'Doctor Activation Requests Screen');
             },
             child: const Text('Lihat Semua Requests'),
@@ -398,7 +419,7 @@ class AdminDashboardScreenState extends ConsumerState<AdminDashboardScreen> {
                 Expanded(
                   child: OutlinedButton(
                     onPressed: () {
-                      _showRequestDetails(context, request); // Tambahkan context
+                      _showRequestDetails(context, request);
                     },
                     child: const Text('Detail'),
                   ),
@@ -407,7 +428,7 @@ class AdminDashboardScreenState extends ConsumerState<AdminDashboardScreen> {
                 Expanded(
                   child: ElevatedButton(
                     onPressed: () {
-                      _approveRequest(context, request['id']); // Tambahkan context
+                      _approveRequest(context, request['id']);
                     },
                     style: ElevatedButton.styleFrom(
                       backgroundColor: Colors.green,
@@ -467,6 +488,19 @@ class AdminDashboardScreenState extends ConsumerState<AdminDashboardScreen> {
           childAspectRatio: 1.5,
           children: [
             _buildQuickActionCard(
+              title: 'Laporan User',
+              icon: Icons.flag,
+              color: Colors.red,
+              onTap: () {
+                Navigator.push(
+                  context,
+                  MaterialPageRoute(
+                    builder: (context) => const AdminReportsScreen(),
+                  ),
+                );
+              },
+            ),
+            _buildQuickActionCard(
               title: 'Manage Users',
               icon: Icons.people,
               color: Colors.blue,
@@ -480,14 +514,6 @@ class AdminDashboardScreenState extends ConsumerState<AdminDashboardScreen> {
               color: Colors.green,
               onTap: () {
                 _showComingSoonSnackbar(context, 'Doctor Requests');
-              },
-            ),
-            _buildQuickActionCard(
-              title: 'Reports',
-              icon: Icons.analytics,
-              color: Colors.purple,
-              onTap: () {
-                _showComingSoonSnackbar(context, 'Reports');
               },
             ),
             _buildQuickActionCard(

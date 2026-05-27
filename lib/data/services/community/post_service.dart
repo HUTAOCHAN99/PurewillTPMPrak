@@ -436,48 +436,41 @@ class PostService {
           .maybeSingle();
 
       if (existingLike != null) {
-        // Unlike
+        // HANYA delete, trigger akan update count
         await _supabase
             .from('community_likes')
             .delete()
             .eq('post_id', postId)
             .eq('user_id', userId);
 
-        // Decrement likes count
-        await _supabase.rpc(
-          'decrement_post_likes',
-          params: {'post_id': postId},
-        );
-
+        // JANGAN panggil RPC decrement_post_likes di sini!
         return false;
       } else {
-        // Like
+        // HANYA insert, trigger akan update count
         await _supabase.from('community_likes').insert({
           'post_id': postId,
           'user_id': userId,
           'created_at': DateTime.now().toIso8601String(),
         });
 
-        // Increment likes count
-        await _supabase.rpc(
-          'increment_post_likes',
-          params: {'post_id': postId},
-        );
-
+        // JANGAN panggil RPC increment_post_likes di sini!
         return true;
       }
     } catch (e) {
-      rethrow;
+      print('Error toggling like post: $e');
+      return false;
     }
   }
 
   Future<int> getPostLikesCount(String postId) async {
     try {
       final response = await _supabase
-          .from('community_likes')
-          .select()
-          .eq('post_id', postId);
-      return response.length;
+          .from('community_posts')
+          .select('likes_count')
+          .eq('id', postId)
+          .single();
+
+      return response['likes_count'] as int? ?? 0;
     } catch (e) {
       return 0;
     }

@@ -1,3 +1,4 @@
+// lib/ui/habit-tracker/view_model/habit_view_model.dart
 import 'dart:developer';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/legacy.dart';
@@ -49,7 +50,7 @@ class HabitsState {
     List<HabitModel>? todayHabit,
     List<DailyLogModel>? dailyLogs,
     List<TargetUnitModel>? targetUnits,
-    List<CategoryModel>? caregories,
+    List<CategoryModel>? categories,
     List<ReminderSettingModel>? reminderSettings,
     ProfileModel? currentUser,
     HabitModel? currentHabitDetail,
@@ -61,7 +62,7 @@ class HabitsState {
       todayHabit: todayHabit ?? this.todayHabit,
       dailyLogs: dailyLogs ?? this.dailyLogs,
       targetUnits: targetUnits ?? this.targetUnits,
-      categories: caregories ?? categories,
+      categories: categories ?? this.categories,
       currentUser: currentUser ?? this.currentUser,
       currentHabitDetail: currentHabitDetail ?? this.currentHabitDetail,
     );
@@ -89,7 +90,6 @@ class HabitsViewModel extends StateNotifier<HabitsState> {
     this._currentUserId,
   ) : super(HabitsState());
 
-  // Method untuk clear/reset state
   void clearState() {
     state = HabitsState(
       status: HabitStatus.initial,
@@ -196,8 +196,6 @@ class HabitsViewModel extends StateNotifier<HabitsState> {
   Future<int> getNofapHabitStreak() async {
     try {
       final habitId = await _habitRepository.getNofapHabitId(_currentUserId);
-      // final streak = await _habitSessionRepository.fetchNofapHabitLongestStreak(habitId: habitId, userId:
-      // _currentUserId);
       final streak = await _habitSessionRepository.fetchNofapHabitLongestStreak(
         habitId: habitId,
         userId: _currentUserId,
@@ -211,7 +209,6 @@ class HabitsViewModel extends StateNotifier<HabitsState> {
   Future<int> getNofapHabitCurrentStreak() async {
     try {
       final habitId = await _habitRepository.getNofapHabitId(_currentUserId);
-      // final streak = await _habitSessionRepository.fetchNofapHabitCurrentStreak(habitId: habitId, userId: _currentUserId);
       final streak = await _habitSessionRepository.fetchNofapHabitCurrentStreak(
         habitId: habitId,
         userId: _currentUserId,
@@ -337,27 +334,25 @@ class HabitsViewModel extends StateNotifier<HabitsState> {
 
       state = state.copyWith(
         status: HabitStatus.success,
-        caregories: categories,
+        categories: categories,
       );
     } catch (e) {
       state = state.copyWith(
         status: HabitStatus.failure,
-        errorMessage: 'Failed to load categorise.',
+        errorMessage: 'Failed to load categories.',
       );
     }
   }
 
   Future<void> toggleHabitCompletion(HabitModel habit) async {
     try {
-      print("habit id to toggle: ${habit.id}");
+      debugPrint("habit id to toggle: ${habit.id}");
       final today = DateTime.now();
       final existingLog = await _dailyLogRepository.getTodayLogForHabit(
         habit.id,
       );
 
-      print(
-        "sebelum di toggle, status existing log: ${existingLog?.status.name}",
-      );
+      debugPrint("sebelum di toggle, status existing log: ${existingLog?.status.name}");
 
       if (existingLog != null) {
         final log = await _dailyLogRepository.recordLog(
@@ -371,7 +366,7 @@ class HabitsViewModel extends StateNotifier<HabitsState> {
           actualValue: habit.targetValue?.toDouble(),
         );
 
-        print("setelah di toggle, status log jadi: ${log.status.name}");
+        debugPrint("setelah di toggle, status log jadi: ${log.status.name}");
       } else {
         await _dailyLogRepository.recordLog(
           habitId: habit.id,
@@ -467,15 +462,7 @@ class HabitsViewModel extends StateNotifier<HabitsState> {
           id: '',
           habitId: habit.id,
           isEnabled: reminderEnabled ?? false,
-          time: reminderTime != null
-              ? DateTime(
-                  startDate.year,
-                  startDate.month,
-                  startDate.day,
-                  reminderTime.hour,
-                  reminderTime.minute,
-                )
-              : DateTime.now(),
+          time: reminderTime ?? TimeOfDay.now(),
           snoozeDuration: 5,
           repeatDaily: true,
           isSoundEnabled: true,
@@ -537,7 +524,7 @@ class HabitsViewModel extends StateNotifier<HabitsState> {
     } catch (e) {
       state = state.copyWith(
         status: HabitStatus.failure,
-        errorMessage: 'Failed to delete habit.',
+        errorMessage: 'Failed to fetch logs for calendar.',
       );
       rethrow;
     }
@@ -654,7 +641,7 @@ class HabitsViewModel extends StateNotifier<HabitsState> {
   Future<void> saveReminderSetting({
     required int habitId,
     required bool isEnabled,
-    required DateTime time,
+    required TimeOfDay time,
     required int snoozeDuration,
     required bool repeatDaily,
     required bool isSoundEnabled,
@@ -670,7 +657,7 @@ class HabitsViewModel extends StateNotifier<HabitsState> {
         repeatDaily: repeatDaily,
         isSoundEnabled: isSoundEnabled,
         isVibrationEnabled: isVibrationEnabled,
-        createdAt: DateTime.now(), // TAMBAHKAN INI
+        createdAt: DateTime.now(),
       );
 
       final reminderSettingBefore = await _reminderSettingRepository
@@ -681,7 +668,7 @@ class HabitsViewModel extends StateNotifier<HabitsState> {
           reminderSettingId: reminderSettingBefore.id,
           updates: {
             'is_enabled': isEnabled,
-            'time': time.toIso8601String(),
+            'time': '${time.hour.toString().padLeft(2, '0')}:${time.minute.toString().padLeft(2, '0')}:00',
             'snooze_duration': snoozeDuration,
             'repeat_daily': repeatDaily,
             'is_sound_enabled': isSoundEnabled,
@@ -690,7 +677,7 @@ class HabitsViewModel extends StateNotifier<HabitsState> {
         );
         await loadCurrentReminderSetting(habitId);
         log(
-          'UPDATE REMINDER SETTING SUCCESS: Reminder setting created for habit $habitId.',
+          'UPDATE REMINDER SETTING SUCCESS: Reminder setting updated for habit $habitId.',
           name: 'HABIT_VIEW_MODEL',
         );
         return;

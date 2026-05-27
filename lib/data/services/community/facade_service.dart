@@ -1,4 +1,4 @@
-// lib\data\services\community\facade_service.dart
+// lib/data/services/community/facade_service.dart
 import 'dart:io';
 import 'package:image_picker/image_picker.dart';
 import 'package:purewill/data/services/community/friendship_service.dart';
@@ -240,7 +240,7 @@ class CommunityFacadeService {
   Future<int> getFriendCount(String userId) =>
       _friendshipService.getFriendCount(userId);
 
-  // ============ REPORT METHODS ============
+  // ============ REPORT METHODS (USER) ============
 
   Future<bool> reportUser({
     required String reporterId,
@@ -279,6 +279,53 @@ class CommunityFacadeService {
       _reportService.isUserBlocked(
         currentUserId: currentUserId,
         targetUserId: targetUserId,
+      );
+
+  // ============ REPORT METHODS (ADMIN) ============
+
+  Future<List<Map<String, dynamic>>> getAllReports({
+    ReportStatus? status,
+    int limit = 50,
+    int offset = 0,
+  }) =>
+      _reportService.getAllReports(
+        status: status,
+        limit: limit,
+        offset: offset,
+      );
+
+  Future<Map<String, dynamic>?> getReportById(String reportId) =>
+      _reportService.getReportById(reportId);
+
+  Future<bool> updateReportStatus({
+    required String reportId,
+    required ReportStatus newStatus,
+    String? adminNote,
+  }) =>
+      _reportService.updateReportStatus(
+        reportId: reportId,
+        newStatus: newStatus,
+        adminNote: adminNote,
+      );
+
+  Future<int> getPendingReportsCount() =>
+      _reportService.getPendingReportsCount();
+
+  Future<Map<String, int>> getReportStatistics() =>
+      _reportService.getReportStatistics();
+
+  Future<bool> deleteReport(String reportId) =>
+      _reportService.deleteReport(reportId);
+
+  Future<bool> takeActionOnReportedContent({
+    required String reportId,
+    required String action,
+    String? note,
+  }) =>
+      _reportService.takeActionOnReportedContent(
+        reportId: reportId,
+        action: action,
+        note: note,
       );
 
   // ============ UTILITY METHODS ============

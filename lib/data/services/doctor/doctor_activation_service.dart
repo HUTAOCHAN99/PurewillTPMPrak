@@ -1,10 +1,10 @@
 // lib/data/services/doctor/doctor_activation_service.dart
-import 'dart:math';
-import 'package:flutter_riverpod/flutter_riverpod.dart';
-import 'package:supabase_flutter/supabase_flutter.dart';
-
-// Import developer log dengan alias
 import 'dart:developer' as dev;
+import 'dart:math';
+import 'package:flutter/material.dart';
+import 'package:supabase_flutter/supabase_flutter.dart';
+import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'package:flutter/services.dart';
 
 final doctorActivationServiceProvider = Provider(
   (ref) => DoctorActivationService(),
@@ -14,59 +14,81 @@ class DoctorActivationService {
   final SupabaseClient _supabase = Supabase.instance.client;
   final Random _random = Random();
 
-  // Cek apakah tabel doctor_activation_requests ada
-  Future<bool> _ensureTableExists() async {
-    try {
-      // Coba query tabel untuk memastikan ada
-      await _supabase.from('doctor_activation_requests').select().limit(1);
-      return true;
-    } catch (e) {
-      dev.log(
-        'Table doctor_activation_requests does not exist: $e',
-        name: 'DOCTOR_ACTIVATION',
-      );
-      return false;
-    }
-  }
-
-  // Cek apakah tabel admin_notifications ada
-  Future<bool> _ensureNotificationsTableExists() async {
-    try {
-      await _supabase.from('admin_notifications').select().limit(1);
-      return true;
-    } catch (e) {
-      dev.log(
-        'Table admin_notifications does not exist: $e',
-        name: 'DOCTOR_ACTIVATION',
-      );
-      return false;
-    }
-  }
-
-  // Generate 8 digit OTP
+  // Generate 6 digit OTP
   String _generateOTP() {
-    return (_random.nextInt(90000000) + 10000000).toString();
+    return (_random.nextInt(900000) + 100000).toString();
   }
 
-  // Request OTP untuk aktivasi dokter
+  // Get current user ID
+  Future<String?> _getCurrentUserId() async {
+    final user = _supabase.auth.currentUser;
+    return user?.id;
+  }
+
+  // Get user role
+  Future<String?> _getUserRole(String userId) async {
+    try {
+      final response = await _supabase
+          .from('profiles')
+          .select('role')
+          .eq('user_id', userId)
+          .maybeSingle();
+      return response?['role'] as String?;
+    } catch (e) {
+      dev.log('Error getting user role: $e', name: 'DOCTOR_ACTIVATION');
+      return null;
+    }
+  }
+
+  // Helper to show OTP in console and copy to clipboard
+  Future<void> _showOTP({
+    required String otpCode,
+    required String userEmail,
+    required String fullName,
+    BuildContext? context,
+  }) async {
+    // Print to console
+    dev.log('╔════════════════════════════════════════════════════════════╗', name: 'DOCTOR_ACTIVATION');
+    dev.log('║                    DOCTOR ACTIVATION OTP                    ║', name: 'DOCTOR_ACTIVATION');
+    dev.log('╠════════════════════════════════════════════════════════════╣', name: 'DOCTOR_ACTIVATION');
+    dev.log('║ To Email: $userEmail', name: 'DOCTOR_ACTIVATION');
+    dev.log('║ User Name: $fullName', name: 'DOCTOR_ACTIVATION');
+    dev.log('║ OTP Code: $otpCode', name: 'DOCTOR_ACTIVATION');
+    dev.log('║                                                            ║', name: 'DOCTOR_ACTIVATION');
+    dev.log('║ Enter this OTP in the app to activate doctor account       ║', name: 'DOCTOR_ACTIVATION');
+    dev.log('╚════════════════════════════════════════════════════════════╝', name: 'DOCTOR_ACTIVATION');
+    
+    // Copy to clipboard
+    await Clipboard.setData(ClipboardData(text: otpCode));
+    dev.log('📋 OTP copied to clipboard: $otpCode', name: 'DOCTOR_ACTIVATION');
+    
+    // Show snackbar if context provided (with mounted check)
+    if (context != null && context.mounted) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text('OTP: $otpCode (copied to clipboard)'),
+          backgroundColor: Colors.green,
+          duration: const Duration(seconds: 5),
+        ),
+      );
+    }
+  }
+
+  // USER: Request aktivasi dokter
   Future<ActivationResult> requestDoctorActivation({
     required String userId,
     required String userEmail,
     required String fullName,
   }) async {
     try {
-      // Cek apakah tabel ada
-      final tableExists = await _ensureTableExists();
-      if (!tableExists) {
-        return ActivationResult(
-          success: false,
-          error:
-              'Sistem aktivasi dokter sedang dalam maintenance. Silakan hubungi administrator.',
-        );
-      }
-
-      // Cek apakah user sudah memiliki role doctor
+      dev.log('=== REQUEST DOCTOR ACTIVATION ===', name: 'DOCTOR_ACTIVATION');
+      dev.log('User ID: $userId', name: 'DOCTOR_ACTIVATION');
+      dev.log('User Email: $userEmail', name: 'DOCTOR_ACTIVATION');
+      dev.log('Full Name: $fullName', name: 'DOCTOR_ACTIVATION');
+      
+      // Check current role
       final currentRole = await _getUserRole(userId);
+      
       if (currentRole == 'doctor') {
         return ActivationResult(
           success: false,
@@ -81,72 +103,61 @@ class DoctorActivationService {
         );
       }
 
-      // Cek apakah sudah ada request pending
-      final existingRequest = await _getPendingRequest(userId);
+      // Check if already has pending request
+      final existingRequest = await _supabase
+          .from('doctor_activation_requests')
+          .select()
+          .eq('user_id', userId)
+          .eq('status', 'pending')
+          .maybeSingle();
+      
       if (existingRequest != null) {
         return ActivationResult(
           success: false,
-          error: 'Anda sudah memiliki request aktivasi yang sedang diproses',
-          requestId: existingRequest['id'],
+          error: 'Anda sudah memiliki request yang sedang diproses',
+          requestId: existingRequest['id'] as String?,
         );
       }
 
-      // Generate OTP
-      final otp = _generateOTP();
-      final expiresAt = DateTime.now().add(const Duration(minutes: 15));
+      // Check if already has approved request waiting for OTP
+      final approvedRequest = await _supabase
+          .from('doctor_activation_requests')
+          .select()
+          .eq('user_id', userId)
+          .eq('status', 'approved')
+          .maybeSingle();
+      
+      if (approvedRequest != null) {
+        return ActivationResult(
+          success: false,
+          error: 'Request Anda sudah disetujui. Silakan masukkan OTP.',
+          requestId: approvedRequest['id'] as String?,
+        );
+      }
 
-      // Simpan ke database
+      // Create activation request
       final response = await _supabase
           .from('doctor_activation_requests')
           .insert({
             'user_id': userId,
             'user_email': userEmail,
             'full_name': fullName,
-            'otp_code': otp,
             'status': 'pending',
-            'expires_at': expiresAt.toIso8601String(),
+            'expires_at': DateTime.now().add(const Duration(days: 7)).toIso8601String(),
             'created_at': DateTime.now().toIso8601String(),
             'updated_at': DateTime.now().toIso8601String(),
           })
-          .select()
-          .single();
-
-      // Kirim OTP ke email user (untuk konfirmasi)
-      await _sendOTPEmail(email: userEmail, userName: fullName, otp: otp);
-
-      // Notify admin jika tabel notifications ada
-      final notificationsTableExists = await _ensureNotificationsTableExists();
-      if (notificationsTableExists) {
-        await _notifyAdminAboutRequest(
-          userId: userId,
-          userEmail: userEmail,
-          userName: fullName,
-          requestId: response['id'],
-        );
-      }
+          .select();
+      
+      dev.log('Request created: ${response[0]['id']}', name: 'DOCTOR_ACTIVATION');
 
       return ActivationResult(
         success: true,
-        requestId: response['id'],
-        message:
-            'Request aktivasi berhasil dikirim. Admin akan meninjau permintaan Anda.',
+        requestId: response[0]['id'] as String?,
+        message: 'Request aktivasi berhasil dikirim. Menunggu persetujuan admin.',
       );
     } catch (e, stackTrace) {
-      dev.log(
-        'Error requesting doctor activation: $e',
-        error: e,
-        stackTrace: stackTrace,
-        name: 'DOCTOR_ACTIVATION',
-      );
-
-      // Handle specific errors
-      if (e.toString().contains('foreign key constraint')) {
-        return ActivationResult(
-          success: false,
-          error: 'User tidak ditemukan. Silakan login kembali.',
-        );
-      }
-
+      dev.log('Error: $e', error: e, stackTrace: stackTrace, name: 'DOCTOR_ACTIVATION');
       return ActivationResult(
         success: false,
         error: 'Gagal mengirim request: ${e.toString()}',
@@ -154,28 +165,40 @@ class DoctorActivationService {
     }
   }
 
-  // Admin approve request dan kirim OTP ke user
+  // ADMIN: Approve request and send OTP
   Future<ActivationResult> approveDoctorActivation({
     required String requestId,
     required String adminId,
+    BuildContext? context,
   }) async {
     try {
-      // Cek apakah tabel ada
-      final tableExists = await _ensureTableExists();
-      if (!tableExists) {
+      dev.log('=== ADMIN APPROVE REQUEST ===', name: 'DOCTOR_ACTIVATION');
+      dev.log('Request ID: $requestId', name: 'DOCTOR_ACTIVATION');
+      dev.log('Admin ID: $adminId', name: 'DOCTOR_ACTIVATION');
+      
+      // Verify admin role
+      final adminRole = await _getUserRole(adminId);
+      if (adminRole != 'admin') {
         return ActivationResult(
           success: false,
-          error: 'Tabel aktivasi tidak ditemukan',
+          error: 'Hanya admin yang dapat approve request',
         );
       }
-
+      
       // Get request details
       final request = await _supabase
           .from('doctor_activation_requests')
           .select()
           .eq('id', requestId)
-          .single();
-
+          .maybeSingle();
+      
+      if (request == null) {
+        return ActivationResult(
+          success: false,
+          error: 'Request tidak ditemukan',
+        );
+      }
+      
       if (request['status'] != 'pending') {
         return ActivationResult(
           success: false,
@@ -183,42 +206,68 @@ class DoctorActivationService {
         );
       }
 
-      // Generate OTP baru untuk verifikasi user
-      final otp = _generateOTP();
-      final expiresAt = DateTime.now().add(const Duration(minutes: 10));
-
-      // Update request status dan tambahkan OTP
+      final userId = request['user_id'] as String;
+      final userEmail = request['user_email'] as String;
+      final fullName = request['full_name'] as String;
+      final otpCode = _generateOTP();
+      final expiresAt = DateTime.now().add(const Duration(hours: 24));
+      
+      // 1. Update request status to approved with OTP
       await _supabase
           .from('doctor_activation_requests')
           .update({
             'status': 'approved',
             'approved_by': adminId,
             'approved_at': DateTime.now().toIso8601String(),
-            'otp_code': otp, // OTP untuk verifikasi user
+            'otp_code': otpCode,
             'expires_at': expiresAt.toIso8601String(),
             'updated_at': DateTime.now().toIso8601String(),
           })
           .eq('id', requestId);
-
-      // Kirim OTP ke email user
-      await _sendActivationOTPEmail(
-        email: request['user_email'],
-        userName: request['full_name'],
-        otp: otp,
+      
+      // 2. Save OTP to temp table
+      try {
+        // Expire old OTPs
+        await _supabase
+            .from('doctor_otp_temp')
+            .update({'status': 'expired', 'updated_at': DateTime.now().toIso8601String()})
+            .eq('user_id', userId)
+            .eq('purpose', 'doctor_activation')
+            .eq('status', 'active');
+        
+        // Insert new OTP
+        await _supabase.from('doctor_otp_temp').insert({
+          'user_id': userId,
+          'otp_code': otpCode,
+          'purpose': 'doctor_activation',
+          'status': 'active',
+          'expires_at': expiresAt.toIso8601String(),
+          'created_at': DateTime.now().toIso8601String(),
+        });
+        
+        dev.log('OTP $otpCode saved for user $userId', name: 'DOCTOR_ACTIVATION');
+      } catch (e) {
+        dev.log('Error saving OTP: $e', name: 'DOCTOR_ACTIVATION');
+      }
+      
+      // 3. Show OTP to admin (for now, email will be implemented later)
+      await _showOTP(
+        otpCode: otpCode,
+        userEmail: userEmail,
+        fullName: fullName,
+        context: context,
       );
+
+      dev.log('=== APPROVE REQUEST SUCCESS ===', name: 'DOCTOR_ACTIVATION');
 
       return ActivationResult(
         success: true,
-        message: 'Request approved. OTP telah dikirim ke email user.',
+        message: 'Request approved. OTP: $otpCode',
+        otpCode: otpCode,
+        requestId: requestId,
       );
     } catch (e, stackTrace) {
-      dev.log(
-        'Error approving doctor activation: $e',
-        error: e,
-        stackTrace: stackTrace,
-        name: 'DOCTOR_ACTIVATION',
-      );
-
+      dev.log('Error: $e', error: e, stackTrace: stackTrace, name: 'DOCTOR_ACTIVATION');
       return ActivationResult(
         success: false,
         error: 'Gagal approve request: ${e.toString()}',
@@ -226,63 +275,85 @@ class DoctorActivationService {
     }
   }
 
-  // User verifikasi OTP untuk aktivasi final
+  // USER: Verify OTP and become doctor
   Future<ActivationResult> verifyDoctorActivationOTP({
     required String userId,
     required String otp,
   }) async {
     try {
-      // Cek apakah tabel ada
-      final tableExists = await _ensureTableExists();
-      if (!tableExists) {
+      dev.log('=== VERIFY OTP ===', name: 'DOCTOR_ACTIVATION');
+      dev.log('User ID: $userId', name: 'DOCTOR_ACTIVATION');
+      dev.log('OTP: $otp', name: 'DOCTOR_ACTIVATION');
+      
+      // Check OTP in temp table
+      final tempOtp = await _supabase
+          .from('doctor_otp_temp')
+          .select()
+          .eq('user_id', userId)
+          .eq('otp_code', otp)
+          .eq('purpose', 'doctor_activation')
+          .eq('status', 'active')
+          .gt('expires_at', DateTime.now().toIso8601String())
+          .maybeSingle();
+      
+      dev.log('Temp OTP result: $tempOtp', name: 'DOCTOR_ACTIVATION');
+      
+      if (tempOtp == null) {
+        // Check if OTP exists but expired
+        final expiredOtp = await _supabase
+            .from('doctor_otp_temp')
+            .select()
+            .eq('user_id', userId)
+            .eq('otp_code', otp)
+            .eq('purpose', 'doctor_activation')
+            .maybeSingle();
+        
+        if (expiredOtp != null) {
+          final expiresAt = DateTime.parse(expiredOtp['expires_at'] as String);
+          if (DateTime.now().isAfter(expiresAt)) {
+            return ActivationResult(
+              success: false,
+              error: 'OTP telah kadaluarsa. Silakan minta OTP baru ke admin.',
+            );
+          }
+        }
+        
         return ActivationResult(
           success: false,
-          error: 'Sistem aktivasi tidak tersedia',
+          error: 'OTP tidak valid. Periksa kembali kode OTP Anda.',
         );
       }
-
-      // Cari request yang approved dan belum expired
-      final requests = await _supabase
+      
+      // Check if request is approved
+      final request = await _supabase
           .from('doctor_activation_requests')
           .select()
           .eq('user_id', userId)
           .eq('status', 'approved')
-          .eq('otp_code', otp);
-
-      if (requests.isEmpty) {
+          .maybeSingle();
+      
+      dev.log('Request result: $request', name: 'DOCTOR_ACTIVATION');
+      
+      if (request == null) {
         return ActivationResult(
           success: false,
-          error: 'OTP tidak valid atau sudah kadaluarsa',
+          error: 'Request tidak ditemukan atau belum disetujui admin',
         );
       }
-
-      final request = requests[0];
-
-      // Cek expiry
-      final expiresAt = DateTime.parse(request['expires_at']);
-      if (DateTime.now().isAfter(expiresAt)) {
-        // Update status ke expired
-        await _supabase
-            .from('doctor_activation_requests')
-            .update({
-              'status': 'expired',
-              'updated_at': DateTime.now().toIso8601String(),
-            })
-            .eq('id', request['id']);
-
-        return ActivationResult(success: false, error: 'OTP telah kadaluarsa');
-      }
-
-      // Update role user ke 'doctor'
-      await _supabase
+      
+      // Update user role to doctor
+      final profileUpdate = await _supabase
           .from('profiles')
           .update({
             'role': 'doctor',
             'updated_at': DateTime.now().toIso8601String(),
           })
-          .eq('user_id', userId);
-
-      // Update request status ke completed
+          .eq('user_id', userId)
+          .select();
+      
+      dev.log('Profile update result: $profileUpdate', name: 'DOCTOR_ACTIVATION');
+      
+      // Update request status to completed
       await _supabase
           .from('doctor_activation_requests')
           .update({
@@ -290,19 +361,35 @@ class DoctorActivationService {
             'updated_at': DateTime.now().toIso8601String(),
           })
           .eq('id', request['id']);
-
+      
+      // Mark OTP as used
+      await _supabase
+          .from('doctor_otp_temp')
+          .update({
+            'status': 'used',
+            'updated_at': DateTime.now().toIso8601String(),
+          })
+          .eq('id', tempOtp['id']);
+      
+      // Verify role has changed
+      final verifyRole = await _getUserRole(userId);
+      dev.log('User role after update: ${verifyRole ?? "null"}', name: 'DOCTOR_ACTIVATION');
+      
+      if (verifyRole != 'doctor') {
+        return ActivationResult(
+          success: false,
+          error: 'Gagal mengupdate role, silakan coba lagi.',
+        );
+      }
+      
+      dev.log('=== VERIFY OTP SUCCESS ===', name: 'DOCTOR_ACTIVATION');
+      
       return ActivationResult(
         success: true,
-        message: 'Akun dokter berhasil diaktifkan!',
+        message: 'Selamat! Akun dokter Anda telah berhasil diaktifkan.',
       );
     } catch (e, stackTrace) {
-      dev.log(
-        'Error verifying OTP: $e',
-        error: e,
-        stackTrace: stackTrace,
-        name: 'DOCTOR_ACTIVATION',
-      );
-
+      dev.log('Error: $e', error: e, stackTrace: stackTrace, name: 'DOCTOR_ACTIVATION');
       return ActivationResult(
         success: false,
         error: 'Verifikasi gagal: ${e.toString()}',
@@ -310,159 +397,188 @@ class DoctorActivationService {
     }
   }
 
-  // Get user's current role
-  Future<String?> _getUserRole(String userId) async {
+  // ADMIN: Resend OTP
+  Future<ActivationResult> resendOTP({
+    required String requestId,
+    BuildContext? context,
+  }) async {
     try {
-      final response = await _supabase
-          .from('profiles')
-          .select('role')
+      dev.log('=== RESEND OTP ===', name: 'DOCTOR_ACTIVATION');
+      dev.log('Request ID: $requestId', name: 'DOCTOR_ACTIVATION');
+      
+      // Get request details
+      final request = await _supabase
+          .from('doctor_activation_requests')
+          .select()
+          .eq('id', requestId)
+          .maybeSingle();
+      
+      if (request == null) {
+        return ActivationResult(
+          success: false,
+          error: 'Request tidak ditemukan',
+        );
+      }
+      
+      if (request['status'] != 'approved') {
+        return ActivationResult(
+          success: false,
+          error: 'Request belum disetujui atau sudah selesai',
+        );
+      }
+      
+      final userId = request['user_id'] as String;
+      final userEmail = request['user_email'] as String;
+      final fullName = request['full_name'] as String;
+      final newOtp = _generateOTP();
+      final expiresAt = DateTime.now().add(const Duration(hours: 24));
+      
+      // Update request with new OTP
+      await _supabase
+          .from('doctor_activation_requests')
+          .update({
+            'otp_code': newOtp,
+            'expires_at': expiresAt.toIso8601String(),
+            'updated_at': DateTime.now().toIso8601String(),
+          })
+          .eq('id', requestId);
+      
+      // Update OTP in temp table
+      await _supabase
+          .from('doctor_otp_temp')
+          .update({'status': 'expired', 'updated_at': DateTime.now().toIso8601String()})
           .eq('user_id', userId)
-          .single();
-
-      return response['role'] as String?;
-    } catch (e) {
-      dev.log('Error getting user role: $e', name: 'DOCTOR_ACTIVATION');
-      return null;
+          .eq('purpose', 'doctor_activation')
+          .eq('status', 'active');
+      
+      await _supabase.from('doctor_otp_temp').insert({
+        'user_id': userId,
+        'otp_code': newOtp,
+        'purpose': 'doctor_activation',
+        'status': 'active',
+        'expires_at': expiresAt.toIso8601String(),
+        'created_at': DateTime.now().toIso8601String(),
+      });
+      
+      // Show new OTP
+      await _showOTP(
+        otpCode: newOtp,
+        userEmail: userEmail,
+        fullName: fullName,
+        context: context,
+      );
+      
+      dev.log('=== RESEND OTP SUCCESS ===', name: 'DOCTOR_ACTIVATION');
+      
+      return ActivationResult(
+        success: true,
+        message: 'OTP baru berhasil dikirim: $newOtp',
+        otpCode: newOtp,
+      );
+    } catch (e, stackTrace) {
+      dev.log('Error: $e', error: e, stackTrace: stackTrace, name: 'DOCTOR_ACTIVATION');
+      return ActivationResult(
+        success: false,
+        error: 'Gagal mengirim ulang OTP: ${e.toString()}',
+      );
     }
   }
 
-  // Get pending request for user
-  Future<Map<String, dynamic>?> _getPendingRequest(String userId) async {
+  // ADMIN: Update request status (reject, etc)
+  Future<ActivationResult> updateRequestStatus({
+    required String requestId,
+    required String status,
+    String? adminId,
+    String? reason,
+  }) async {
     try {
+      dev.log('=== UPDATE REQUEST STATUS ===', name: 'DOCTOR_ACTIVATION');
+      dev.log('Request ID: $requestId, Status: $status', name: 'DOCTOR_ACTIVATION');
+      
+      // Verify admin role if adminId provided
+      if (adminId != null) {
+        final adminRole = await _getUserRole(adminId);
+        if (adminRole != 'admin') {
+          return ActivationResult(
+            success: false,
+            error: 'Hanya admin yang dapat mengubah status request',
+          );
+        }
+      }
+      
+      final updateData = <String, dynamic>{
+        'status': status,
+        'updated_at': DateTime.now().toIso8601String(),
+      };
+      
+      if (adminId != null && status == 'rejected') {
+        updateData['approved_by'] = adminId;
+        updateData['approved_at'] = DateTime.now().toIso8601String();
+        if (reason != null) {
+          updateData['rejection_reason'] = reason;
+        }
+      }
+      
+      await _supabase
+          .from('doctor_activation_requests')
+          .update(updateData)
+          .eq('id', requestId);
+      
+      dev.log('Status updated to: $status', name: 'DOCTOR_ACTIVATION');
+      
+      return ActivationResult(
+        success: true,
+        message: 'Request berhasil di${_getStatusMessage(status)}',
+      );
+    } catch (e, stackTrace) {
+      dev.log('Error: $e', error: e, stackTrace: stackTrace, name: 'DOCTOR_ACTIVATION');
+      return ActivationResult(
+        success: false,
+        error: 'Gagal mengupdate status: ${e.toString()}',
+      );
+    }
+  }
+
+  // ADMIN: Get all requests
+  Future<List<Map<String, dynamic>>> getAllRequests() async {
+    try {
+      final currentUserId = await _getCurrentUserId();
+      final currentRole = await _getUserRole(currentUserId ?? '');
+      
+      dev.log('Getting requests for user role: ${currentRole ?? "null"}', name: 'DOCTOR_ACTIVATION');
+      
+      if (currentRole != 'admin') {
+        // Non-admin only see their own requests
+        final response = await _supabase
+            .from('doctor_activation_requests')
+            .select()
+            .eq('user_id', currentUserId ?? '')
+            .order('created_at', ascending: false);
+        return List<Map<String, dynamic>>.from(response);
+      }
+      
+      // Admin sees all
       final response = await _supabase
           .from('doctor_activation_requests')
           .select()
-          .eq('user_id', userId)
-          .eq('status', 'pending')
-          .maybeSingle();
-
-      return response;
+          .order('created_at', ascending: false);
+      
+      return List<Map<String, dynamic>>.from(response);
     } catch (e) {
-      // Handle case when table doesn't exist
-      if (e.toString().contains('Could not find the table')) {
-        dev.log(
-          'Table doctor_activation_requests does not exist yet',
-          name: 'DOCTOR_ACTIVATION',
-        );
-        return null;
-      }
-      dev.log('Error getting pending request: $e', name: 'DOCTOR_ACTIVATION');
-      return null;
+      dev.log('Error getting requests: $e', name: 'DOCTOR_ACTIVATION');
+      return [];
     }
   }
 
-  // Send OTP email (simulasi)
-  Future<void> _sendOTPEmail({
-    required String email,
-    required String userName,
-    required String otp,
-  }) async {
-    // Implementasi pengiriman email nyata menggunakan service email
-    dev.log('OTP untuk $email: $otp', name: 'DOCTOR_ACTIVATION');
-
-    // Dalam aplikasi produksi, gunakan service email seperti Resend
-    /*
-    try {
-      await http.post(
-        Uri.parse('https://api.resend.com/emails'),
-        headers: {
-          'Authorization': 'Bearer YOUR_RESEND_API_KEY',
-          'Content-Type': 'application/json',
-        },
-        body: json.encode({
-          'from': 'noreply@purewill.com',
-          'to': email,
-          'subject': 'Doctor Activation Request',
-          'html': '''
-            <h2>Doctor Activation Request</h2>
-            <p>Hello $userName,</p>
-            <p>Your request to become a doctor has been received.</p>
-            <p>Admin will review your request shortly.</p>
-            <p>Your OTP for reference: <strong>$otp</strong></p>
-          ''',
-        }),
-      );
-    } catch (e) {
-      dev.log('Failed to send email: $e', name: 'DOCTOR_ACTIVATION');
-    }
-    */
-  }
-
-  // Send activation OTP email
-  Future<void> _sendActivationOTPEmail({
-    required String email,
-    required String userName,
-    required String otp,
-  }) async {
-    dev.log('Activation OTP untuk $email: $otp', name: 'DOCTOR_ACTIVATION');
-
-    // Implementasi pengiriman email nyata
-    /*
-    try {
-      await http.post(
-        Uri.parse('https://api.resend.com/emails'),
-        headers: {
-          'Authorization': 'Bearer YOUR_RESEND_API_KEY',
-          'Content-Type': 'application/json',
-        },
-        body: json.encode({
-          'from': 'noreply@purewill.com',
-          'to': email,
-          'subject': 'Your Doctor Activation OTP',
-          'html': '''
-            <h2>Doctor Activation OTP</h2>
-            <p>Hello $userName,</p>
-            <p>Your request to become a doctor has been approved!</p>
-            <p>Use this OTP to complete your activation:</p>
-            <h1 style="color: #7C3AED; font-size: 32px; letter-spacing: 8px;">$otp</h1>
-            <p>This OTP will expire in 10 minutes.</p>
-          ''',
-        }),
-      );
-    } catch (e) {
-      dev.log('Failed to send activation email: $e', name: 'DOCTOR_ACTIVATION');
-    }
-    */
-  }
-
-  // Notify admin (simulasi)
-  Future<void> _notifyAdminAboutRequest({
-    required String userId,
-    required String userEmail,
-    required String userName,
-    required String requestId,
-  }) async {
-    try {
-      // Simpan notification di database
-      await _supabase.from('admin_notifications').insert({
-        'type': 'doctor_activation_request',
-        'title': 'New Doctor Activation Request',
-        'message': '$userName ($userEmail) wants to become a doctor',
-        'metadata': {
-          'user_id': userId,
-          'user_email': userEmail,
-          'user_name': userName,
-          'request_id': requestId,
-        },
-        'created_at': DateTime.now().toIso8601String(),
-      });
-    } catch (e) {
-      dev.log('Failed to notify admin: $e', name: 'DOCTOR_ACTIVATION');
-    }
-  }
-
-  // Get all pending requests (untuk admin)
+  // ADMIN: Get pending requests
   Future<List<Map<String, dynamic>>> getPendingRequests() async {
     try {
-      final tableExists = await _ensureTableExists();
-      if (!tableExists) return [];
-
       final response = await _supabase
           .from('doctor_activation_requests')
           .select()
           .eq('status', 'pending')
           .order('created_at', ascending: false);
-
+      
       return List<Map<String, dynamic>>.from(response);
     } catch (e) {
       dev.log('Error getting pending requests: $e', name: 'DOCTOR_ACTIVATION');
@@ -473,15 +589,12 @@ class DoctorActivationService {
   // Get request by ID
   Future<Map<String, dynamic>?> getRequestById(String requestId) async {
     try {
-      final tableExists = await _ensureTableExists();
-      if (!tableExists) return null;
-
       final response = await _supabase
           .from('doctor_activation_requests')
           .select()
           .eq('id', requestId)
           .maybeSingle();
-
+      
       return response;
     } catch (e) {
       dev.log('Error getting request by ID: $e', name: 'DOCTOR_ACTIVATION');
@@ -489,153 +602,68 @@ class DoctorActivationService {
     }
   }
 
-  // Get all doctor activation requests (for admin)
-  Future<List<Map<String, dynamic>>> getAllRequests() async {
+  // Get user activation status
+  Future<String?> getUserActivationStatus(String userId) async {
     try {
-      final tableExists = await _ensureTableExists();
-      if (!tableExists) return [];
+      final response = await _supabase
+          .from('doctor_activation_requests')
+          .select('status')
+          .eq('user_id', userId)
+          .order('created_at', ascending: false)
+          .limit(1)
+          .maybeSingle();
+      
+      return response?['status'] as String?;
+    } catch (e) {
+      dev.log('Error getting user activation status: $e', name: 'DOCTOR_ACTIVATION');
+      return null;
+    }
+  }
 
+  // Check if user has approved request (waiting for OTP)
+  Future<bool> hasApprovedRequest(String userId) async {
+    try {
       final response = await _supabase
           .from('doctor_activation_requests')
           .select()
-          .order('created_at', ascending: false);
-
-      return List<Map<String, dynamic>>.from(response);
+          .eq('user_id', userId)
+          .eq('status', 'approved')
+          .maybeSingle();
+      
+      return response != null;
     } catch (e) {
-      dev.log('Error getting all requests: $e', name: 'DOCTOR_ACTIVATION');
-      return [];
+      dev.log('Error checking approved request: $e', name: 'DOCTOR_ACTIVATION');
+      return false;
     }
   }
 
-  // Update request status
-  Future<ActivationResult> updateRequestStatus({
-    required String requestId,
-    required String status,
-    String? adminId,
-  }) async {
+  // Check if user is doctor
+  Future<bool> isUserDoctor(String userId) async {
     try {
-      final updates = {
-        'status': status,
-        'updated_at': DateTime.now().toIso8601String(),
-      };
-
-      if (adminId != null && (status == 'approved' || status == 'rejected')) {
-        updates['approved_by'] = adminId;
-        updates['${status == 'approved' ? 'approved' : 'rejected'}_at'] =
-            DateTime.now().toIso8601String();
-      }
-
-      await _supabase
-          .from('doctor_activation_requests')
-          .update(updates)
-          .eq('id', requestId);
-
-      return ActivationResult(
-        success: true,
-        message: 'Request $status successfully',
-      );
+      final response = await _supabase
+          .from('profiles')
+          .select('role')
+          .eq('user_id', userId)
+          .maybeSingle();
+      
+      return response != null && response['role'] == 'doctor';
     } catch (e) {
-      return ActivationResult(
-        success: false,
-        error: 'Failed to update status: $e',
-      );
+      dev.log('Error checking is user doctor: $e', name: 'DOCTOR_ACTIVATION');
+      return false;
     }
   }
 
-  // Resend OTP untuk request yang sudah approved
-  Future<ActivationResult> resendActivationOTP({
-    required String requestId,
-    required String adminId,
-  }) async {
-    try {
-      // Cek apakah tabel ada
-      final tableExists = await _ensureTableExists();
-      if (!tableExists) {
-        return ActivationResult(
-          success: false,
-          error: 'Tabel aktivasi tidak ditemukan',
-        );
-      }
-
-      // Get request details
-      final request = await _supabase
-          .from('doctor_activation_requests')
-          .select()
-          .eq('id', requestId)
-          .single();
-
-      if (request['status'] != 'approved') {
-        return ActivationResult(
-          success: false,
-          error: 'Request belum disetujui',
-        );
-      }
-
-      // Generate OTP baru
-      final otp = _generateOTP();
-      final expiresAt = DateTime.now().add(const Duration(minutes: 10));
-
-      // Update OTP dan expiry
-      await _supabase
-          .from('doctor_activation_requests')
-          .update({
-            'otp_code': otp,
-            'expires_at': expiresAt.toIso8601String(),
-            'updated_at': DateTime.now().toIso8601String(),
-          })
-          .eq('id', requestId);
-
-      // Kirim OTP ke email user
-      await _sendActivationOTPEmail(
-        email: request['user_email'],
-        userName: request['full_name'],
-        otp: otp,
-      );
-
-      return ActivationResult(
-        success: true,
-        message: 'OTP berhasil dikirim ulang ke email user.',
-      );
-    } catch (e, stackTrace) {
-      dev.log(
-        'Error resending OTP: $e',
-        error: e,
-        stackTrace: stackTrace,
-        name: 'DOCTOR_ACTIVATION',
-      );
-
-      return ActivationResult(
-        success: false,
-        error: 'Gagal mengirim ulang OTP: ${e.toString()}',
-      );
-    }
-  }
-
-  // Get statistics for admin dashboard
+  // Get dashboard statistics for admin
   Future<Map<String, dynamic>> getDashboardStats() async {
     try {
-      final tableExists = await _ensureTableExists();
-      if (!tableExists) {
-        return {
-          'totalRequests': 0,
-          'pendingRequests': 0,
-          'approvedRequests': 0,
-          'completedRequests': 0,
-          'rejectedRequests': 0,
-          'expiredRequests': 0,
-        };
-      }
-
-      // Get all requests untuk hitung statistik
       final allRequests = await getAllRequests();
-
-      // Hitung berdasarkan status
+      
       int pending = 0;
       int approved = 0;
       int completed = 0;
       int rejected = 0;
       int expired = 0;
-
+      
       for (final request in allRequests) {
         final status = request['status'] as String? ?? '';
         switch (status) {
@@ -656,7 +684,7 @@ class DoctorActivationService {
             break;
         }
       }
-
+      
       return {
         'totalRequests': allRequests.length,
         'pendingRequests': pending,
@@ -680,147 +708,17 @@ class DoctorActivationService {
     }
   }
 
-  // Get requests by status
-  Future<List<Map<String, dynamic>>> getRequestsByStatus(String status) async {
-    try {
-      final tableExists = await _ensureTableExists();
-      if (!tableExists) return [];
-
-      final response = await _supabase
-          .from('doctor_activation_requests')
-          .select()
-          .eq('status', status)
-          .order('created_at', ascending: false);
-
-      return List<Map<String, dynamic>>.from(response);
-    } catch (e) {
-      dev.log(
-        'Error getting requests by status: $e',
-        name: 'DOCTOR_ACTIVATION',
-      );
-      return [];
-    }
-  }
-
-  // Get requests by user ID
-  Future<List<Map<String, dynamic>>> getRequestsByUserId(String userId) async {
-    try {
-      final tableExists = await _ensureTableExists();
-      if (!tableExists) return [];
-
-      final response = await _supabase
-          .from('doctor_activation_requests')
-          .select()
-          .eq('user_id', userId)
-          .order('created_at', ascending: false);
-
-      return List<Map<String, dynamic>>.from(response);
-    } catch (e) {
-      dev.log(
-        'Error getting requests by user ID: $e',
-        name: 'DOCTOR_ACTIVATION',
-      );
-      return [];
-    }
-  }
-
-  // Delete request (for admin)
-  Future<ActivationResult> deleteRequest(String requestId) async {
-    try {
-      final tableExists = await _ensureTableExists();
-      if (!tableExists) {
-        return ActivationResult(success: false, error: 'Tabel tidak ditemukan');
-      }
-
-      await _supabase
-          .from('doctor_activation_requests')
-          .delete()
-          .eq('id', requestId);
-
-      return ActivationResult(
-        success: true,
-        message: 'Request berhasil dihapus',
-      );
-    } catch (e, stackTrace) {
-      dev.log(
-        'Error deleting request: $e',
-        error: e,
-        stackTrace: stackTrace,
-        name: 'DOCTOR_ACTIVATION',
-      );
-
-      return ActivationResult(
-        success: false,
-        error: 'Gagal menghapus request: ${e.toString()}',
-      );
-    }
-  }
-
-  // Check if user has active doctor request
-  Future<bool> hasActiveRequest(String userId) async {
-    try {
-      final tableExists = await _ensureTableExists();
-      if (!tableExists) return false;
-
-      final response = await _supabase
-          .from('doctor_activation_requests')
-          .select()
-          .eq('user_id', userId)
-          .or('status.eq.pending,status.eq.approved')
-          .maybeSingle();
-
-      return response != null;
-    } catch (e) {
-      dev.log('Error checking active request: $e', name: 'DOCTOR_ACTIVATION');
-      return false;
-    }
-  }
-
-  // Get expired requests
-  Future<List<Map<String, dynamic>>> getExpiredRequests() async {
-    try {
-      final tableExists = await _ensureTableExists();
-      if (!tableExists) return [];
-
-      final now = DateTime.now().toIso8601String();
-
-      // Cari request yang expired (expires_at < sekarang dan status masih approved)
-      final response = await _supabase
-          .from('doctor_activation_requests')
-          .select()
-          .eq('status', 'approved')
-          .lt('expires_at', now);
-
-      return List<Map<String, dynamic>>.from(response);
-    } catch (e) {
-      dev.log('Error getting expired requests: $e', name: 'DOCTOR_ACTIVATION');
-      return [];
-    }
-  }
-
-  // Auto-expire old approved requests
-  Future<void> autoExpireOldRequests() async {
-    try {
-      final expiredRequests = await getExpiredRequests();
-
-      for (final request in expiredRequests) {
-        await _supabase
-            .from('doctor_activation_requests')
-            .update({
-              'status': 'expired',
-              'updated_at': DateTime.now().toIso8601String(),
-            })
-            .eq('id', request['id']);
-      }
-
-      if (expiredRequests.isNotEmpty) {
-        dev.log(
-          'Auto-expired ${expiredRequests.length} requests',
-          name: 'DOCTOR_ACTIVATION',
-        );
-      }
-    } catch (e) {
-      dev.log('Error auto-expiring requests: $e', name: 'DOCTOR_ACTIVATION');
+  // Helper: Get status message in Indonesian
+  String _getStatusMessage(String status) {
+    switch (status) {
+      case 'approved':
+        return 'setujui';
+      case 'rejected':
+        return 'tolak';
+      case 'cancelled':
+        return 'batalkan';
+      default:
+        return status;
     }
   }
 }
@@ -830,11 +728,13 @@ class ActivationResult {
   final String? error;
   final String? message;
   final String? requestId;
+  final String? otpCode;
 
   ActivationResult({
     required this.success,
     this.error,
     this.message,
     this.requestId,
+    this.otpCode,
   });
 }

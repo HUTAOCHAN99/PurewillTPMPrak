@@ -3,8 +3,10 @@ import 'dart:async';
 import 'package:flutter/material.dart';
 import 'package:flutter/rendering.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'package:purewill/data/services/community/report_service.dart';
 import 'package:purewill/ui/habit-tracker/screen/post_search_delegate.dart';
 import 'package:purewill/ui/habit-tracker/widget/community/user_profile_dialog.dart';
+import 'package:purewill/ui/habit-tracker/widget/community/community_provider.dart' as community_provider;
 import 'package:supabase_flutter/supabase_flutter.dart';
 import 'package:flutter/services.dart';
 import 'package:purewill/data/services/community/post_service.dart';
@@ -14,6 +16,7 @@ import 'package:purewill/ui/habit-tracker/widget/community/post_card.dart';
 import 'package:purewill/ui/habit-tracker/widget/community/create_post_dialog.dart';
 import 'package:purewill/ui/habit-tracker/widget/community/comments_screen.dart';
 import 'package:purewill/ui/habit-tracker/widget/community/share_post_dialog.dart';
+import 'package:url_launcher/url_launcher.dart';
 
 // Provider untuk current user
 final currentUserProvider = Provider<User?>((ref) {
@@ -27,70 +30,36 @@ final postServiceProvider = Provider((ref) => PostService());
 // Provider untuk community service
 final communityServiceProvider = Provider((ref) => CommunityService());
 
-// Provider untuk post dalam komunitas
-final communityPostsProvider = StreamProvider.autoDispose
-    .family<List<CommunityPost>, String>((ref, communityId) async* {
-      final postService = ref.read(postServiceProvider);
-      final user = ref.watch(currentUserProvider);
+// Provider untuk cek akses komunitas
+final canAccessCommunityProvider = FutureProvider.autoDispose<bool>((ref) async {
+  final user = ref.watch(currentUserProvider);
+  if (user == null) return true;
 
-      if (user == null) {
-        yield [];
-        return;
-      }
+  final reportService = ReportService();
+  return await reportService.canUserAccessCommunity(user.id);
+});
 
-      try {
-        yield* postService.streamCommunityPosts(communityId, user.id);
-      } catch (e) {
-        yield [];
-      }
-    });
+// Provider untuk pesan ban
+final userBanMessageProvider = FutureProvider.autoDispose<String?>((ref) async {
+  final user = ref.watch(currentUserProvider);
+  if (user == null) return null;
+
+  final reportService = ReportService();
+  return await reportService.getUserBanMessage(user.id);
+});
 
 // Provider untuk community details
 final communityDetailsProvider = FutureProvider.autoDispose
     .family<Community, String>((ref, communityId) async {
-      final communityService = ref.read(communityServiceProvider);
-      final user = ref.watch(currentUserProvider);
+  final communityService = ref.read(communityServiceProvider);
+  final user = ref.watch(currentUserProvider);
 
-      if (user == null) {
-        throw Exception('User not authenticated');
-      }
+  if (user == null) {
+    throw Exception('User not authenticated');
+  }
 
-      return await communityService.getCommunityDetails(communityId, user.id);
-    });
-
-// Provider untuk user profile dengan statistik teman
-final userProfileWithStatsProvider = FutureProvider.autoDispose
-    .family<Map<String, dynamic>, String>((ref, userId) async {
-      try {
-        // Coba ambil profile dan friend count
-        final supabase = Supabase.instance.client;
-
-        // Get profile
-        final profileResponse = await supabase
-            .from('profiles')
-            .select('user_id, full_name, avatar_url, level, current_xp')
-            .eq('user_id', userId)
-            .maybeSingle();
-
-        Profile? profile;
-        if (profileResponse != null) {
-          profile = Profile.fromJson(profileResponse);
-        }
-
-        // Get friend count (hanya count saja untuk performa)
-        final friendCountResponse = await supabase
-            .from('friendships')
-            .select()
-            .or('(sender_id.eq.$userId,receiver_id.eq.$userId)')
-            .eq('status', 'accepted');
-
-        final friendCount = friendCountResponse.length;
-
-        return {'profile': profile, 'friendCount': friendCount};
-      } catch (e) {
-        return {'profile': null, 'friendCount': 0};
-      }
-    });
+  return await communityService.getCommunityDetails(communityId, user.id);
+});
 
 class CommunityDetailScreen extends ConsumerStatefulWidget {
   final String communityId;
@@ -107,201 +76,6 @@ class CommunityDetailScreen extends ConsumerStatefulWidget {
       _CommunityDetailScreenState();
 }
 
-class CommunitySidebar extends StatelessWidget {
-  final String communityId;
-  final String communityName;
-  final String? userId;
-  final bool isAdmin;
-  final VoidCallback onInviteUsers;
-  final VoidCallback onViewMembers;
-  final VoidCallback onReportCommunity;
-  final VoidCallback onLeaveCommunity;
-  final VoidCallback onDeleteCommunity;
-  final VoidCallback onOpenProfile;
-
-  const CommunitySidebar({
-    super.key,
-    required this.communityId,
-    required this.communityName,
-    required this.userId,
-    required this.isAdmin,
-    required this.onInviteUsers,
-    required this.onViewMembers,
-    required this.onReportCommunity,
-    required this.onLeaveCommunity,
-    required this.onDeleteCommunity,
-    required this.onOpenProfile,
-  });
-
-  @override
-  Widget build(BuildContext context) {
-    return Container(
-      decoration: BoxDecoration(
-        color: Colors.white,
-        borderRadius: const BorderRadius.only(
-          topLeft: Radius.circular(24),
-          topRight: Radius.circular(24),
-        ),
-      ),
-      child: SafeArea(
-        child: Column(
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            // Header
-            Padding(
-              padding: const EdgeInsets.all(20),
-              child: Row(
-                children: [
-                  Container(
-                    width: 50,
-                    height: 50,
-                    decoration: BoxDecoration(
-                      color: Colors.blue,
-                      borderRadius: BorderRadius.circular(12),
-                    ),
-                    child: const Icon(
-                      Icons.people,
-                      color: Colors.white,
-                      size: 30,
-                    ),
-                  ),
-                  const SizedBox(width: 16),
-                  Expanded(
-                    child: Column(
-                      crossAxisAlignment: CrossAxisAlignment.start,
-                      children: [
-                        Text(
-                          communityName,
-                          style: const TextStyle(
-                            fontSize: 18,
-                            fontWeight: FontWeight.bold,
-                          ),
-                        ),
-                        const SizedBox(height: 4),
-                        Text(
-                          'Komunitas Aktif',
-                          style: TextStyle(
-                            fontSize: 12,
-                            color: Colors.grey[600],
-                          ),
-                        ),
-                      ],
-                    ),
-                  ),
-                ],
-              ),
-            ),
-
-            const Divider(height: 1),
-
-            // Menu Items
-            Padding(
-              padding: const EdgeInsets.symmetric(vertical: 8),
-              child: Column(
-                children: [
-                  // Profile
-                  if (userId != null)
-                    ListTile(
-                      leading: const Icon(Icons.person_outline),
-                      title: const Text('Profil Saya'),
-                      onTap: () {
-                        Navigator.pop(context);
-                        onOpenProfile();
-                      },
-                    ),
-
-                  // Undang Pengguna
-                  ListTile(
-                    leading: const Icon(Icons.person_add_outlined),
-                    title: const Text('Undang Pengguna'),
-                    onTap: () {
-                      Navigator.pop(context);
-                      onInviteUsers();
-                    },
-                  ),
-
-                  // Anggota
-                  ListTile(
-                    leading: const Icon(Icons.group_outlined),
-                    title: const Text('Anggota Komunitas'),
-                    onTap: () {
-                      Navigator.pop(context);
-                      onViewMembers();
-                    },
-                  ),
-
-                  // Laporkan Komunitas
-                  ListTile(
-                    leading: const Icon(Icons.flag_outlined),
-                    title: const Text('Laporkan Komunitas'),
-                    onTap: () {
-                      Navigator.pop(context);
-                      onReportCommunity();
-                    },
-                  ),
-
-                  // Keluar dari Komunitas
-                  ListTile(
-                    leading: const Icon(
-                      Icons.exit_to_app_outlined,
-                      color: Colors.red,
-                    ),
-                    title: const Text(
-                      'Keluar dari Komunitas',
-                      style: TextStyle(color: Colors.red),
-                    ),
-                    onTap: () {
-                      Navigator.pop(context);
-                      onLeaveCommunity();
-                    },
-                  ),
-
-                  // Hapus Komunitas (hanya admin)
-                  if (isAdmin)
-                    ListTile(
-                      leading: const Icon(
-                        Icons.delete_outline,
-                        color: Colors.red,
-                      ),
-                      title: const Text(
-                        'Hapus Komunitas',
-                        style: TextStyle(color: Colors.red),
-                      ),
-                      onTap: () {
-                        Navigator.pop(context);
-                        onDeleteCommunity();
-                      },
-                    ),
-
-                  const SizedBox(height: 20),
-                ],
-              ),
-            ),
-
-            // Tombol Close
-            Padding(
-              padding: const EdgeInsets.all(16),
-              child: ElevatedButton(
-                onPressed: () => Navigator.pop(context),
-                style: ElevatedButton.styleFrom(
-                  minimumSize: const Size(double.infinity, 48),
-                  backgroundColor: Colors.grey[100],
-                  foregroundColor: Colors.grey[800],
-                  shape: RoundedRectangleBorder(
-                    borderRadius: BorderRadius.circular(12),
-                  ),
-                  elevation: 0,
-                ),
-                child: const Text('Tutup'),
-              ),
-            ),
-          ],
-        ),
-      ),
-    );
-  }
-}
-
 class _CommunityDetailScreenState extends ConsumerState<CommunityDetailScreen> {
   late final PostService _postService;
   late final CommunityService _communityService;
@@ -312,8 +86,6 @@ class _CommunityDetailScreenState extends ConsumerState<CommunityDetailScreen> {
 
   final ScrollController _scrollController = ScrollController();
   final ValueNotifier<bool> _showFabNotifier = ValueNotifier<bool>(true);
-  final GlobalKey<ScaffoldMessengerState> _scaffoldMessengerKey =
-      GlobalKey<ScaffoldMessengerState>();
 
   Timer? _scrollDebounceTimer;
 
@@ -356,9 +128,22 @@ class _CommunityDetailScreenState extends ConsumerState<CommunityDetailScreen> {
     }
   }
 
-  void _openSidebar() {
+  void _checkUser() {
     final user = Supabase.instance.client.auth.currentUser;
-    final isAdmin = false; // Tambahkan logika cek admin jika diperlukan
+    if (user != null) {
+      setState(() {
+        _currentUserId = user.id;
+        _isLoadingUser = false;
+      });
+    } else {
+      setState(() {
+        _isLoadingUser = false;
+      });
+    }
+  }
+
+  void _openSidebar() {
+    final isAdmin = false;
 
     showModalBottomSheet(
       context: context,
@@ -388,7 +173,6 @@ class _CommunityDetailScreenState extends ConsumerState<CommunityDetailScreen> {
       _showError('Silakan login untuk mengundang pengguna');
       return;
     }
-
     _showInfo('Fitur undang pengguna akan segera hadir');
   }
 
@@ -424,7 +208,6 @@ class _CommunityDetailScreenState extends ConsumerState<CommunityDetailScreen> {
     );
 
     if (confirm == true) {
-      // Implement delete community logic
       _showInfo('Fitur hapus komunitas akan segera hadir');
     }
   }
@@ -438,20 +221,6 @@ class _CommunityDetailScreenState extends ConsumerState<CommunityDetailScreen> {
     super.dispose();
   }
 
-  void _checkUser() {
-    final user = Supabase.instance.client.auth.currentUser;
-    if (user != null) {
-      setState(() {
-        _currentUserId = user.id;
-        _isLoadingUser = false;
-      });
-    } else {
-      setState(() {
-        _isLoadingUser = false;
-      });
-    }
-  }
-
   void _showCreatePostDialog() {
     if (_currentUserId == null) {
       _showError('Silakan login untuk membuat post');
@@ -463,9 +232,7 @@ class _CommunityDetailScreenState extends ConsumerState<CommunityDetailScreen> {
       builder: (context) => CreatePostDialog(
         communityId: widget.communityId,
         userId: _currentUserId!,
-        onPostCreated: () {
-          ref.invalidate(communityPostsProvider(widget.communityId));
-        },
+        onPostCreated: () {},
       ),
     );
   }
@@ -580,9 +347,7 @@ class _CommunityDetailScreenState extends ConsumerState<CommunityDetailScreen> {
       builder: (context) => SharePostDialog(
         originalPost: post,
         userId: _currentUserId!,
-        onShared: () {
-          ref.invalidate(communityPostsProvider(widget.communityId));
-        },
+        onShared: () {},
       ),
     );
   }
@@ -637,7 +402,7 @@ class _CommunityDetailScreenState extends ConsumerState<CommunityDetailScreen> {
   Future<void> _editPost(CommunityPost post) async {
     if (_currentUserId == null) return;
 
-    final result = await showDialog(
+    await showDialog(
       context: context,
       builder: (context) => CreatePostDialog(
         communityId: widget.communityId,
@@ -646,15 +411,9 @@ class _CommunityDetailScreenState extends ConsumerState<CommunityDetailScreen> {
         initialImageUrl: post.imageUrl,
         isEditing: true,
         postId: post.id,
-        onPostCreated: () {
-          ref.invalidate(communityPostsProvider(widget.communityId));
-        },
+        onPostCreated: () {},
       ),
     );
-
-    if (result == true) {
-      // Stream akan otomatis update
-    }
   }
 
   void _copyPostLink(CommunityPost post) {
@@ -733,35 +492,6 @@ class _CommunityDetailScreenState extends ConsumerState<CommunityDetailScreen> {
     }
   }
 
-  void _shareCommunity() {
-    showDialog(
-      context: context,
-      builder: (context) => AlertDialog(
-        title: const Text('Bagikan Komunitas'),
-        content: const Text('Bagikan link komunitas ini ke teman-teman Anda.'),
-        actions: [
-          TextButton(
-            onPressed: () => Navigator.pop(context),
-            child: const Text('Batal'),
-          ),
-          TextButton(
-            onPressed: () {
-              Clipboard.setData(
-                ClipboardData(
-                  text:
-                      'https://app.example.com/community/${widget.communityId}',
-                ),
-              );
-              _showInfo('Link komunitas disalin ke clipboard');
-              Navigator.pop(context);
-            },
-            child: const Text('Salin Link'),
-          ),
-        ],
-      ),
-    );
-  }
-
   void _reportCommunity() {
     showDialog(
       context: context,
@@ -780,127 +510,6 @@ class _CommunityDetailScreenState extends ConsumerState<CommunityDetailScreen> {
     );
   }
 
-  // ============ SEARCH HANDLERS ============
-
-  Future<void> _handleSearchPostLike(CommunityPost post) async {
-    if (_currentUserId == null) {
-      _showError('Silakan login untuk memberikan like');
-      return;
-    }
-
-    try {
-      await _postService.toggleLikePost(post.id, _currentUserId!);
-    } catch (e) {
-      _showError('Error: ${e.toString()}');
-    }
-  }
-
-  void _handleSearchPostComment(CommunityPost post) {
-    if (_currentUserId == null) {
-      _showError('Silakan login untuk melihat komentar');
-      return;
-    }
-
-    Navigator.push(
-      context,
-      MaterialPageRoute(
-        builder: (context) => CommentsScreen(
-          postId: post.id,
-          communityName: widget.communityName,
-        ),
-      ),
-    );
-  }
-
-  void _handleSearchPostShare(CommunityPost post) {
-    if (_currentUserId == null) {
-      _showError('Silakan login untuk membagikan post');
-      return;
-    }
-
-    showModalBottomSheet(
-      context: context,
-      isScrollControlled: true,
-      builder: (context) => SharePostDialog(
-        originalPost: post,
-        userId: _currentUserId!,
-        onShared: () {
-          ref.invalidate(communityPostsProvider(widget.communityId));
-        },
-      ),
-    );
-  }
-
-  void _handleSearchPostMore(CommunityPost post) {
-    showModalBottomSheet(
-      context: context,
-      builder: (context) => Container(
-        padding: const EdgeInsets.all(16),
-        child: Column(
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            if (post.authorId == _currentUserId) ...[
-              ListTile(
-                leading: const Icon(Icons.edit_outlined),
-                title: const Text('Edit Post'),
-                onTap: () {
-                  Navigator.pop(context);
-                  _editPost(post);
-                },
-              ),
-              ListTile(
-                leading: const Icon(Icons.delete_outline, color: Colors.red),
-                title: const Text(
-                  'Hapus Post',
-                  style: TextStyle(color: Colors.red),
-                ),
-                onTap: () {
-                  Navigator.pop(context);
-                  _deletePost(post);
-                },
-              ),
-              const Divider(),
-            ],
-            ListTile(
-              leading: const Icon(Icons.flag_outlined),
-              title: const Text('Laporkan Post'),
-              onTap: () {
-                Navigator.pop(context);
-                _showReportDialog(post);
-              },
-            ),
-            ListTile(
-              leading: const Icon(Icons.copy_outlined),
-              title: const Text('Salin Link'),
-              onTap: () {
-                Navigator.pop(context);
-                _copyPostLink(post);
-              },
-            ),
-            ListTile(
-              leading: const Icon(Icons.share_outlined),
-              title: const Text('Bagikan ke Komunitas Lain'),
-              onTap: () {
-                Navigator.pop(context);
-                _handleSearchPostShare(post);
-              },
-            ),
-            ListTile(
-              leading: const Icon(Icons.save_alt_outlined),
-              title: const Text('Simpan Gambar'),
-              onTap: () {
-                Navigator.pop(context);
-                _showInfo('Fitur simpan gambar akan segera hadir');
-              },
-            ),
-          ],
-        ),
-      ),
-    );
-  }
-
-  // ============ PROFILE HANDLERS ============
-
   void _openUserProfile() {
     if (_currentUserId == null) {
       _showError('Silakan login untuk melihat profil');
@@ -913,67 +522,213 @@ class _CommunityDetailScreenState extends ConsumerState<CommunityDetailScreen> {
     );
   }
 
-  // ============ UTILITY METHODS ============
-
   void _showError(String message) {
     WidgetsBinding.instance.addPostFrameCallback((_) {
       if (!mounted) return;
-
-      try {
-        ScaffoldMessenger.of(context).clearSnackBars();
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(
-            content: Text(message),
-            backgroundColor: Colors.red,
-            duration: const Duration(seconds: 4),
-            behavior: SnackBarBehavior.fixed,
-          ),
-        );
-      } catch (e) {
-        // Ignore error
-      }
+      ScaffoldMessenger.of(context).clearSnackBars();
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text(message),
+          backgroundColor: Colors.red,
+          duration: const Duration(seconds: 4),
+          behavior: SnackBarBehavior.fixed,
+        ),
+      );
     });
   }
 
   void _showSuccess(String message) {
     WidgetsBinding.instance.addPostFrameCallback((_) {
       if (!mounted) return;
-
-      try {
-        ScaffoldMessenger.of(context).clearSnackBars();
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(
-            content: Text(message),
-            backgroundColor: Colors.green,
-            duration: const Duration(seconds: 3),
-            behavior: SnackBarBehavior.fixed,
-          ),
-        );
-      } catch (e) {
-        // Ignore error
-      }
+      ScaffoldMessenger.of(context).clearSnackBars();
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text(message),
+          backgroundColor: Colors.green,
+          duration: const Duration(seconds: 3),
+          behavior: SnackBarBehavior.fixed,
+        ),
+      );
     });
   }
 
   void _showInfo(String message) {
     WidgetsBinding.instance.addPostFrameCallback((_) {
       if (!mounted) return;
-
-      try {
-        ScaffoldMessenger.of(context).clearSnackBars();
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(
-            content: Text(message),
-            backgroundColor: Colors.blue,
-            duration: const Duration(seconds: 3),
-            behavior: SnackBarBehavior.fixed,
-          ),
-        );
-      } catch (e) {
-        // Ignore error
-      }
+      ScaffoldMessenger.of(context).clearSnackBars();
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text(message),
+          backgroundColor: Colors.blue,
+          duration: const Duration(seconds: 3),
+          behavior: SnackBarBehavior.fixed,
+        ),
+      );
     });
   }
+
+  // ============ BANNED SCREEN ============
+
+  Widget _buildBannedScreen(String? message) {
+    return Scaffold(
+      appBar: AppBar(
+        title: Text(widget.communityName),
+        backgroundColor: Colors.white,
+      ),
+      body: Center(
+        child: Padding(
+          padding: const EdgeInsets.all(24.0),
+          child: Column(
+            mainAxisAlignment: MainAxisAlignment.center,
+            children: [
+              Container(
+                width: 100,
+                height: 100,
+                decoration: BoxDecoration(
+                  color: Colors.red[50],
+                  shape: BoxShape.circle,
+                ),
+                child: Icon(
+                  Icons.block,
+                  size: 50,
+                  color: Colors.red[400],
+                ),
+              ),
+              const SizedBox(height: 24),
+              const Text(
+                'Akses Diblokir',
+                style: TextStyle(
+                  fontSize: 24,
+                  fontWeight: FontWeight.bold,
+                  color: Colors.red,
+                ),
+              ),
+              const SizedBox(height: 16),
+              Container(
+                padding: const EdgeInsets.all(16),
+                decoration: BoxDecoration(
+                  color: Colors.grey[50],
+                  borderRadius: BorderRadius.circular(12),
+                  border: Border.all(color: Colors.grey[200]!),
+                ),
+                child: Text(
+                  message ?? 'Akun Anda sedang di-ban. Anda tidak dapat mengakses fitur komunitas.',
+                  textAlign: TextAlign.center,
+                  style: const TextStyle(fontSize: 14, height: 1.5),
+                ),
+              ),
+              const SizedBox(height: 24),
+              ElevatedButton.icon(
+                onPressed: _openAppealEmail,
+                icon: const Icon(Icons.email),
+                label: const Text('Ajukan Banding via Email'),
+                style: ElevatedButton.styleFrom(
+                  backgroundColor: Colors.blue,
+                  padding: const EdgeInsets.symmetric(horizontal: 24, vertical: 12),
+                  shape: RoundedRectangleBorder(
+                    borderRadius: BorderRadius.circular(12),
+                  ),
+                ),
+              ),
+              const SizedBox(height: 12),
+              TextButton.icon(
+                onPressed: _showAppealInstructions,
+                icon: const Icon(Icons.help_outline),
+                label: const Text('Cara Mengajukan Banding'),
+              ),
+              const SizedBox(height: 12),
+              TextButton(
+                onPressed: () => Navigator.pop(context),
+                child: const Text('Kembali'),
+              ),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+
+  Future<void> _openAppealEmail() async {
+    final user = Supabase.instance.client.auth.currentUser;
+    final emailUri = Uri(
+      scheme: 'mailto',
+      path: 'ahmadzhofir1808@gmail.com',
+      query: encodeQueryParameters({
+        'subject': 'BANDING AKUN - PureWill - ${user?.id ?? ''}',
+        'body': '''
+Halo Admin PureWill,
+
+Saya ingin mengajukan banding atas ban akun saya.
+
+Informasi akun:
+- User ID: ${user?.id ?? 'Tidak diketahui'}
+- Email: ${user?.email ?? 'Tidak diketahui'}
+
+Alasan banding:
+(Silakan jelaskan alasan Anda di sini dengan detail)
+
+Saya berjanji akan mematuhi aturan komunitas PureWill ke depannya.
+
+Terima kasih atas perhatiannya.
+
+Hormat saya,
+${user?.email ?? 'Pengguna PureWill'}
+''',
+      }),
+    );
+
+    try {
+      if (await canLaunchUrl(emailUri)) {
+        await launchUrl(emailUri);
+      } else {
+        _showError('Tidak dapat membuka email. Silakan buka Gmail manual dan kirim ke ahmadzhofir1808@gmail.com');
+      }
+    } catch (e) {
+      _showError('Error: $e');
+    }
+  }
+
+  void _showAppealInstructions() {
+    showDialog(
+      context: context,
+      builder: (context) => AlertDialog(
+        title: const Text('Cara Mengajukan Banding'),
+        content: const Column(
+          mainAxisSize: MainAxisSize.min,
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Text('1. Klik tombol "Ajukan Banding via Email"'),
+            SizedBox(height: 8),
+            Text('2. Email akan terbuka di aplikasi email Anda'),
+            SizedBox(height: 8),
+            Text('3. Isi alasan banding dengan jelas'),
+            SizedBox(height: 8),
+            Text('4. Kirim email ke ahmadzhofir1808@gmail.com'),
+            SizedBox(height: 16),
+            Text(
+              'Admin akan memproses banding Anda dalam 1x24 jam.',
+              style: TextStyle(fontWeight: FontWeight.bold),
+            ),
+          ],
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(context),
+            child: const Text('Tutup'),
+          ),
+          ElevatedButton(
+            onPressed: () {
+              Navigator.pop(context);
+              _openAppealEmail();
+            },
+            child: const Text('Buka Email'),
+          ),
+        ],
+      ),
+    );
+  }
+
+  // ============ NORMAL SCREEN ============
 
   Widget _buildJoinButton() {
     return Padding(
@@ -1011,7 +766,7 @@ class _CommunityDetailScreenState extends ConsumerState<CommunityDetailScreen> {
         color: Colors.white,
         boxShadow: [
           BoxShadow(
-            color: Colors.black.withOpacity(0.1),
+            color: Colors.black.withValues(alpha: 0.1),
             blurRadius: 4,
             offset: const Offset(0, 2),
           ),
@@ -1067,10 +822,7 @@ class _CommunityDetailScreenState extends ConsumerState<CommunityDetailScreen> {
               ),
             ],
           ),
-
           const SizedBox(height: 16),
-
-          // Community stats
           Row(
             mainAxisAlignment: MainAxisAlignment.spaceAround,
             children: [
@@ -1087,7 +839,6 @@ class _CommunityDetailScreenState extends ConsumerState<CommunityDetailScreen> {
               ),
             ],
           ),
-
           if (!community.isJoined) const SizedBox(height: 16),
         ],
       ),
@@ -1273,7 +1024,7 @@ class _CommunityDetailScreenState extends ConsumerState<CommunityDetailScreen> {
 
         return RefreshIndicator(
           onRefresh: () async {
-            ref.invalidate(communityPostsProvider(widget.communityId));
+            ref.invalidate(community_provider.communityPostsStreamProvider(widget.communityId));
           },
           child: ListView.builder(
             controller: _scrollController,
@@ -1322,8 +1073,9 @@ class _CommunityDetailScreenState extends ConsumerState<CommunityDetailScreen> {
             ),
             const SizedBox(height: 16),
             ElevatedButton(
-              onPressed: () =>
-                  ref.invalidate(communityPostsProvider(widget.communityId)),
+              onPressed: () {
+                ref.invalidate(community_provider.communityPostsStreamProvider(widget.communityId));
+              },
               child: const Text('Coba Lagi'),
             ),
           ],
@@ -1375,15 +1127,6 @@ class _CommunityDetailScreenState extends ConsumerState<CommunityDetailScreen> {
     ];
   }
 
-  void _showInviteFriendsDialog(Community community) {
-    if (_currentUserId == null) {
-      _showError('Silakan login untuk mengundang teman');
-      return;
-    }
-
-    _showInfo('Fitur undang teman akan segera hadir');
-  }
-
   Widget _buildFloatingActionButton(AsyncValue<Community> communityAsync) {
     return ValueListenableBuilder<bool>(
       valueListenable: _showFabNotifier,
@@ -1429,6 +1172,31 @@ class _CommunityDetailScreenState extends ConsumerState<CommunityDetailScreen> {
 
   @override
   Widget build(BuildContext context) {
+    final canAccessAsync = ref.watch(canAccessCommunityProvider);
+    final banMessageAsync = ref.watch(userBanMessageProvider);
+
+    // Cek status ban terlebih dahulu
+    return canAccessAsync.when(
+      data: (canAccess) {
+        if (!canAccess) {
+          return banMessageAsync.when(
+            data: (message) => _buildBannedScreen(message),
+            loading: () => const Scaffold(
+              body: Center(child: CircularProgressIndicator()),
+            ),
+            error: (_, __) => _buildBannedScreen('Akun Anda sedang di-ban. Hubungi admin.'),
+          );
+        }
+
+        // User normal, lanjutkan ke konten komunitas
+        return _buildNormalContent();
+      },
+      loading: () => _buildLoadingUser(),
+      error: (_, __) => _buildNormalContent(),
+    );
+  }
+
+  Widget _buildNormalContent() {
     if (_isLoadingUser) {
       return _buildLoadingUser();
     }
@@ -1440,16 +1208,15 @@ class _CommunityDetailScreenState extends ConsumerState<CommunityDetailScreen> {
     final communityAsync = ref.watch(
       communityDetailsProvider(widget.communityId),
     );
-    final postsAsync = ref.watch(communityPostsProvider(widget.communityId));
+
+    final postsAsync = ref.watch(community_provider.communityPostsStreamProvider(widget.communityId));
 
     return ScaffoldMessenger(
-      key: _scaffoldMessengerKey,
       child: Scaffold(
         backgroundColor: Colors.grey[50],
         appBar: AppBar(
           title: Text(widget.communityName),
           actions: [
-            // Search Icon
             IconButton(
               icon: const Icon(Icons.search),
               onPressed: () {
@@ -1458,23 +1225,44 @@ class _CommunityDetailScreenState extends ConsumerState<CommunityDetailScreen> {
                   delegate: PostSearchDelegate(
                     communityId: widget.communityId,
                     currentUserId: _currentUserId,
-                    onLikeTapped: _handleSearchPostLike,
-                    onCommentTapped: _handleSearchPostComment,
-                    onShareTapped: _handleSearchPostShare,
-                    onMoreTapped: _handleSearchPostMore,
+                    onLikeTapped: (post) async {
+                      if (_currentUserId != null) {
+                        await _postService.toggleLikePost(post.id, _currentUserId!);
+                      }
+                    },
+                    onCommentTapped: (post) {
+                      Navigator.push(
+                        context,
+                        MaterialPageRoute(
+                          builder: (context) => CommentsScreen(
+                            postId: post.id,
+                            communityName: widget.communityName,
+                          ),
+                        ),
+                      );
+                    },
+                    onShareTapped: (post) {
+                      showModalBottomSheet(
+                        context: context,
+                        isScrollControlled: true,
+                        builder: (context) => SharePostDialog(
+                          originalPost: post,
+                          userId: _currentUserId!,
+                          onShared: () {},
+                        ),
+                      );
+                    },
+                    onMoreTapped: (post) => _showPostOptions(post),
                   ),
                 );
               },
               tooltip: 'Cari postingan',
             ),
-
-            // Community menu dan profile button
             ..._buildAppBarActions(communityAsync),
           ],
         ),
         body: Column(
           children: [
-            // Unread posts badge
             FutureBuilder<int>(
               future: _communityService.getUnreadPostsCount(
                 _currentUserId!,
@@ -1502,7 +1290,6 @@ class _CommunityDetailScreenState extends ConsumerState<CommunityDetailScreen> {
                         const Spacer(),
                         TextButton(
                           onPressed: () {
-                            // Scroll ke atas untuk lihat post baru
                             _scrollController.animateTo(
                               0,
                               duration: const Duration(milliseconds: 500),
@@ -1521,7 +1308,6 @@ class _CommunityDetailScreenState extends ConsumerState<CommunityDetailScreen> {
                 return const SizedBox.shrink();
               },
             ),
-
             Expanded(
               child: communityAsync.when(
                 data: (community) {
@@ -1558,4 +1344,190 @@ class _CommunityDetailScreenState extends ConsumerState<CommunityDetailScreen> {
       ),
     );
   }
+}
+
+// ============ COMMUNITY SIDEBAR ============
+
+class CommunitySidebar extends StatelessWidget {
+  final String communityId;
+  final String communityName;
+  final String? userId;
+  final bool isAdmin;
+  final VoidCallback onInviteUsers;
+  final VoidCallback onViewMembers;
+  final VoidCallback onReportCommunity;
+  final VoidCallback onLeaveCommunity;
+  final VoidCallback onDeleteCommunity;
+  final VoidCallback onOpenProfile;
+
+  const CommunitySidebar({
+    super.key,
+    required this.communityId,
+    required this.communityName,
+    required this.userId,
+    required this.isAdmin,
+    required this.onInviteUsers,
+    required this.onViewMembers,
+    required this.onReportCommunity,
+    required this.onLeaveCommunity,
+    required this.onDeleteCommunity,
+    required this.onOpenProfile,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      decoration: BoxDecoration(
+        color: Colors.white,
+        borderRadius: const BorderRadius.only(
+          topLeft: Radius.circular(24),
+          topRight: Radius.circular(24),
+        ),
+      ),
+      child: SafeArea(
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            Padding(
+              padding: const EdgeInsets.all(20),
+              child: Row(
+                children: [
+                  Container(
+                    width: 50,
+                    height: 50,
+                    decoration: BoxDecoration(
+                      color: Colors.blue,
+                      borderRadius: BorderRadius.circular(12),
+                    ),
+                    child: const Icon(
+                      Icons.people,
+                      color: Colors.white,
+                      size: 30,
+                    ),
+                  ),
+                  const SizedBox(width: 16),
+                  Expanded(
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Text(
+                          communityName,
+                          style: const TextStyle(
+                            fontSize: 18,
+                            fontWeight: FontWeight.bold,
+                          ),
+                        ),
+                        const SizedBox(height: 4),
+                        Text(
+                          'Komunitas Aktif',
+                          style: TextStyle(
+                            fontSize: 12,
+                            color: Colors.grey[600],
+                          ),
+                        ),
+                      ],
+                    ),
+                  ),
+                ],
+              ),
+            ),
+            const Divider(height: 1),
+            Padding(
+              padding: const EdgeInsets.symmetric(vertical: 8),
+              child: Column(
+                children: [
+                  if (userId != null)
+                    ListTile(
+                      leading: const Icon(Icons.person_outline),
+                      title: const Text('Profil Saya'),
+                      onTap: () {
+                        Navigator.pop(context);
+                        onOpenProfile();
+                      },
+                    ),
+                  ListTile(
+                    leading: const Icon(Icons.person_add_outlined),
+                    title: const Text('Undang Pengguna'),
+                    onTap: () {
+                      Navigator.pop(context);
+                      onInviteUsers();
+                    },
+                  ),
+                  ListTile(
+                    leading: const Icon(Icons.group_outlined),
+                    title: const Text('Anggota Komunitas'),
+                    onTap: () {
+                      Navigator.pop(context);
+                      onViewMembers();
+                    },
+                  ),
+                  ListTile(
+                    leading: const Icon(Icons.flag_outlined),
+                    title: const Text('Laporkan Komunitas'),
+                    onTap: () {
+                      Navigator.pop(context);
+                      onReportCommunity();
+                    },
+                  ),
+                  ListTile(
+                    leading: const Icon(
+                      Icons.exit_to_app_outlined,
+                      color: Colors.red,
+                    ),
+                    title: const Text(
+                      'Keluar dari Komunitas',
+                      style: TextStyle(color: Colors.red),
+                    ),
+                    onTap: () {
+                      Navigator.pop(context);
+                      onLeaveCommunity();
+                    },
+                  ),
+                  if (isAdmin)
+                    ListTile(
+                      leading: const Icon(
+                        Icons.delete_outline,
+                        color: Colors.red,
+                      ),
+                      title: const Text(
+                        'Hapus Komunitas',
+                        style: TextStyle(color: Colors.red),
+                      ),
+                      onTap: () {
+                        Navigator.pop(context);
+                        onDeleteCommunity();
+                      },
+                    ),
+                  const SizedBox(height: 20),
+                ],
+              ),
+            ),
+            Padding(
+              padding: const EdgeInsets.all(16),
+              child: ElevatedButton(
+                onPressed: () => Navigator.pop(context),
+                style: ElevatedButton.styleFrom(
+                  minimumSize: const Size(double.infinity, 48),
+                  backgroundColor: Colors.grey[100],
+                  foregroundColor: Colors.grey[800],
+                  shape: RoundedRectangleBorder(
+                    borderRadius: BorderRadius.circular(12),
+                  ),
+                  elevation: 0,
+                ),
+                child: const Text('Tutup'),
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+}
+
+// Helper function untuk encode query parameters
+String encodeQueryParameters(Map<String, String> params) {
+  return params.entries
+      .map((e) => '${Uri.encodeComponent(e.key)}=${Uri.encodeComponent(e.value)}')
+      .join('&');
 }

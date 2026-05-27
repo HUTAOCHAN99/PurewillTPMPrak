@@ -4,14 +4,13 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:purewill/ui/habit-tracker/screen/user_profile_screen.dart';
 import 'package:purewill/ui/habit-tracker/widget/community/chat_bubble_comment.dart';
+import 'package:purewill/ui/habit-tracker/widget/community/report_dialog.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
 import 'package:purewill/data/services/community/comment_service.dart';
 import 'package:purewill/domain/model/community_model.dart';
 
-// Provider untuk comment service
 final commentServiceProvider = Provider((ref) => CommentService());
 
-// Provider untuk komentar post
 final postCommentsProvider = StreamProvider.autoDispose
     .family<List<CommunityComment>, String>((ref, postId) async* {
   final commentService = ref.read(commentServiceProvider);
@@ -23,11 +22,8 @@ final postCommentsProvider = StreamProvider.autoDispose
   }
 
   try {
-    // Get initial comments
     final initialComments =
         await commentService.getPostComments(postId, userId: user.id);
-
-    // Return as stream
     yield initialComments;
   } catch (e) {
     yield [];
@@ -65,7 +61,6 @@ class _CommentsScreenState extends ConsumerState<CommentsScreen> {
     _commentService = ref.read(commentServiceProvider);
     _getCurrentUser();
 
-    // Auto focus ke text field setelah sedikit delay
     Timer(const Duration(milliseconds: 300), () {
       if (mounted) {
         _commentFocusNode.requestFocus();
@@ -93,6 +88,23 @@ class _CommentsScreenState extends ConsumerState<CommentsScreen> {
     }
   }
 
+  void _showReportDialog(CommunityComment comment) {
+    final user = Supabase.instance.client.auth.currentUser;
+    if (user == null) {
+      _showError('Silakan login untuk melaporkan');
+      return;
+    }
+
+    showDialog(
+      context: context,
+      builder: (context) => ReportDialog(
+        reportedUserId: comment.authorId,
+        commentId: comment.id,
+        reporterId: user.id,
+      ),
+    );
+  }
+
   Future<void> _postComment() async {
     if (_currentUserId == null) {
       _showError('Silakan login untuk mengomentari');
@@ -112,14 +124,9 @@ class _CommentsScreenState extends ConsumerState<CommentsScreen> {
         parentCommentId: _replyingToCommentId,
       );
 
-      // Clear fields
       _commentController.clear();
       _cancelReply();
-
-      // Refresh comments
       ref.invalidate(postCommentsProvider(widget.postId));
-
-      // Scroll ke bawah
       _scrollToBottom();
     } catch (e) {
       _showError('Gagal mengirim komentar: ${e.toString()}');
@@ -133,7 +140,6 @@ class _CommentsScreenState extends ConsumerState<CommentsScreen> {
       _replyingToCommentId = comment.id;
       _replyingToUserName = comment.author?.fullName;
     });
-
     _commentFocusNode.requestFocus();
     _scrollToBottom();
   }
@@ -156,35 +162,6 @@ class _CommentsScreenState extends ConsumerState<CommentsScreen> {
       ref.invalidate(postCommentsProvider(widget.postId));
     } catch (e) {
       _showError('Gagal memberikan like: ${e.toString()}');
-    }
-  }
-
-  Future<void> _deleteComment(CommunityComment comment) async {
-    if (_currentUserId == null || comment.authorId != _currentUserId) {
-      return;
-    }
-
-    final confirm = await showDialog<bool>(
-      context: context,
-      builder: (context) => AlertDialog(
-        title: const Text('Hapus Komentar'),
-        content: const Text('Apakah Anda yakin ingin menghapus komentar ini?'),
-        actions: [
-          TextButton(
-            onPressed: () => Navigator.pop(context, false),
-            child: const Text('Batal'),
-          ),
-          TextButton(
-            onPressed: () => Navigator.pop(context, true),
-            child: const Text('Hapus', style: TextStyle(color: Colors.red)),
-          ),
-        ],
-      ),
-    );
-
-    if (confirm == true) {
-      // Implement soft delete
-      _showInfo('Fitur hapus komentar akan segera hadir');
     }
   }
 
@@ -221,16 +198,6 @@ class _CommentsScreenState extends ConsumerState<CommentsScreen> {
         content: Text(message),
         backgroundColor: Colors.red,
         duration: const Duration(seconds: 3),
-      ),
-    );
-  }
-
-  void _showInfo(String message) {
-    ScaffoldMessenger.of(context).showSnackBar(
-      SnackBar(
-        content: Text(message),
-        backgroundColor: Colors.blue,
-        duration: const Duration(seconds: 2),
       ),
     );
   }
@@ -272,7 +239,7 @@ class _CommentsScreenState extends ConsumerState<CommentsScreen> {
         border: Border(top: BorderSide(color: Colors.grey[300]!)),
         boxShadow: [
           BoxShadow(
-            color: Colors.black.withOpacity(0.1),
+            color: Colors.black.withValues(alpha: 0.1),
             blurRadius: 4,
             offset: const Offset(0, -2),
           ),
@@ -280,10 +247,7 @@ class _CommentsScreenState extends ConsumerState<CommentsScreen> {
       ),
       child: Column(
         children: [
-          // Reply indicator
           _buildReplyIndicator(),
-
-          // Input field
           Row(
             children: [
               Expanded(
@@ -346,21 +310,19 @@ class _CommentsScreenState extends ConsumerState<CommentsScreen> {
 
     return Column(
       children: [
-        // Komentar utama
         ChatBubble(
           comment: comment,
           isCurrentUser: isCurrentUser,
           onLike: () => _toggleLikeComment(comment),
           onReply: () => _replyToComment(comment),
+          onReport: () => _showReportDialog(comment),
           onDelete: comment.authorId == _currentUserId
-              ? () => _deleteComment(comment)
+              ? () => _showDeleteConfirm(comment)
               : null,
           onAvatarTap: () => _showUserProfile(comment),
           showTail: true,
           isReply: false,
         ),
-
-        // Replies jika ada
         if (hasReplies && replies.isNotEmpty)
           Padding(
             padding: EdgeInsets.only(left: isCurrentUser ? 0 : 48),
@@ -372,17 +334,51 @@ class _CommentsScreenState extends ConsumerState<CommentsScreen> {
                   isCurrentUser: isReplyCurrentUser,
                   onLike: () => _toggleLikeComment(reply),
                   onReply: () => _replyToComment(reply),
+                  onReport: () => _showReportDialog(reply),
                   onDelete: reply.authorId == _currentUserId
-                      ? () => _deleteComment(reply)
+                      ? () => _showDeleteConfirm(reply)
                       : null,
                   onAvatarTap: () => _showUserProfile(reply),
-                  showTail: false, // Replies tidak punya tail
+                  showTail: false,
                   isReply: true,
                 );
               }).toList(),
             ),
           ),
       ],
+    );
+  }
+
+  void _showDeleteConfirm(CommunityComment comment) {
+    showDialog(
+      context: context,
+      builder: (context) => AlertDialog(
+        title: const Text('Hapus Komentar'),
+        content: const Text('Apakah Anda yakin ingin menghapus komentar ini?'),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(context),
+            child: const Text('Batal'),
+          ),
+          TextButton(
+            onPressed: () {
+              Navigator.pop(context);
+              _showInfo('Fitur hapus komentar akan segera hadir');
+            },
+            child: const Text('Hapus', style: TextStyle(color: Colors.red)),
+          ),
+        ],
+      ),
+    );
+  }
+
+  void _showInfo(String message) {
+    ScaffoldMessenger.of(context).showSnackBar(
+      SnackBar(
+        content: Text(message),
+        backgroundColor: Colors.blue,
+        duration: const Duration(seconds: 2),
+      ),
     );
   }
 
@@ -560,8 +556,6 @@ class _CommentsScreenState extends ConsumerState<CommentsScreen> {
               error: (error, stack) => _buildErrorState(error.toString()),
             ),
           ),
-
-          // Input komentar
           _buildCommentInput(),
         ],
       ),

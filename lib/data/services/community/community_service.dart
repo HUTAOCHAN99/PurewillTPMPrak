@@ -65,7 +65,6 @@ class CommunityService {
 
   Future<bool> joinCommunity(String communityId, String userId) async {
     try {
-      // Check if already a member
       final existingMember = await _supabase
           .from('community_members')
           .select()
@@ -77,6 +76,8 @@ class CommunityService {
         return false;
       }
 
+      // HANYA insert ke community_members
+      // Trigger akan otomatis update member_count
       await _supabase.from('community_members').insert({
         'community_id': communityId,
         'user_id': userId,
@@ -84,13 +85,7 @@ class CommunityService {
         'role': 'member',
       });
 
-      // Update member count
-      await _supabase.rpc(
-        'increment_member_count',
-        params: {'community_id': communityId},
-      );
-
-      // Log activity
+      // Log activity (opsional, tidak masalah)
       await _supabase.from('community_activities').insert({
         'community_id': communityId,
         'user_id': userId,
@@ -107,17 +102,13 @@ class CommunityService {
 
   Future<bool> leaveCommunity(String communityId, String userId) async {
     try {
+      // HANYA delete dari community_members
+      // Trigger akan otomatis update member_count
       await _supabase
           .from('community_members')
           .delete()
           .eq('community_id', communityId)
           .eq('user_id', userId);
-
-      // Update member count
-      await _supabase.rpc(
-        'decrement_member_count',
-        params: {'community_id': communityId},
-      );
 
       // Log activity
       await _supabase.from('community_activities').insert({
