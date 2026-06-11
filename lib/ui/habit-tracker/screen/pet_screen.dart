@@ -49,7 +49,7 @@ class _PetScreenState extends State<PetScreen> {
   double _gyroSensitivity = 0.5;
   double _targetCameraX = 0;
   String _lastGyroAction = "";
-  
+
   // ================= HOLD SYSTEM =================
   bool isHoldingCat = false;
   double holdOffsetY = 0;
@@ -116,7 +116,7 @@ class _PetScreenState extends State<PetScreen> {
           if (_gyroEnabled && !isDragging && !isHoldingCat && !isDead) {
             // BALIKAN arah gyro (miring kanan = ke kanan)
             double gyroMove = -(_gyroX * _gyroSensitivity * 10);
-            
+
             if (gyroMove.abs() > 0.5) {
               // Aktifkan animasi slide saat gyro bergerak
               if (_lastGyroAction != "Slide") {
@@ -124,9 +124,9 @@ class _PetScreenState extends State<PetScreen> {
                 _lastGyroAction = "Slide";
                 _playRandomShortSound();
               }
-              
+
               catX += gyroMove;
-              
+
               // Ubah arah berdasarkan gerakan gyro
               if (gyroMove > 0) {
                 moveRight = true;
@@ -142,10 +142,10 @@ class _PetScreenState extends State<PetScreen> {
                 }
               }
             }
-            
+
             // Batasi posisi
             catX = catX.clamp(0, worldWidth - 200);
-            
+
             // Update target kamera
             _targetCameraX = catX - screenWidth / 2 + 100;
           }
@@ -154,11 +154,13 @@ class _PetScreenState extends State<PetScreen> {
           if (catX >= worldWidth - 200) {
             catX = worldWidth - 200;
             moveRight = false;
-            if (!isHoldingCat && currentAction != "Slide") _playRandomShortSound();
+            if (!isHoldingCat && currentAction != "Slide")
+              _playRandomShortSound();
           } else if (catX <= 0) {
             catX = 0;
             moveRight = true;
-            if (!isHoldingCat && currentAction != "Slide") _playRandomShortSound();
+            if (!isHoldingCat && currentAction != "Slide")
+              _playRandomShortSound();
           }
 
           // CAMERA FOLLOW
@@ -201,9 +203,7 @@ class _PetScreenState extends State<PetScreen> {
               currentAction != "Slide") {
             loadFrames("Hurt");
             _playSpecialSound("Hurt");
-          } else if (hunger >= 30 &&
-              currentAction == "Hurt" &&
-              !isDead) {
+          } else if (hunger >= 30 && currentAction == "Hurt" && !isDead) {
             loadFrames("Idle");
           }
         }
@@ -227,12 +227,12 @@ class _PetScreenState extends State<PetScreen> {
       _gyroEnabled = false;
       return;
     }
-    
+
     _accelerometerSubscription = accelerometerEventStream().listen(
       (AccelerometerEvent event) {
         // BALIKAN arah dengan negatif (miring kanan = positif)
         _gyroX = -event.x.clamp(-2, 2).toDouble();
-        
+
         // Deadzone
         if (_gyroX.abs() < 0.1) {
           _gyroX = 0;
@@ -315,10 +315,7 @@ class _PetScreenState extends State<PetScreen> {
 
   void _showSnackBar(String message) {
     ScaffoldMessenger.of(context).showSnackBar(
-      SnackBar(
-        content: Text(message),
-        duration: const Duration(seconds: 2),
-      ),
+      SnackBar(content: Text(message), duration: const Duration(seconds: 2)),
     );
   }
 
@@ -428,9 +425,9 @@ class _PetScreenState extends State<PetScreen> {
     await _accelerometerSubscription?.cancel();
     await _audioPlayer?.stop();
 
-    Navigator.of(context).pushReplacement(
-      MaterialPageRoute(builder: (_) => const HomeScreen()),
-    );
+    Navigator.of(
+      context,
+    ).pushReplacement(MaterialPageRoute(builder: (_) => const HomeScreen()));
   }
 
   @override
@@ -481,8 +478,10 @@ class _PetScreenState extends State<PetScreen> {
           if (isDragging && !isHoldingCat) {
             double delta = details.globalPosition.dx - dragStartX;
             setState(() {
-              cameraX = (cameraStartX - delta)
-                  .clamp(0, worldWidth - screenWidth);
+              cameraX = (cameraStartX - delta).clamp(
+                0,
+                worldWidth - screenWidth,
+              );
             });
           }
         },
@@ -584,7 +583,10 @@ class _PetScreenState extends State<PetScreen> {
                   });
 
                   Future.delayed(const Duration(milliseconds: 600), () {
-                    if (!isDead && mounted && !isHoldingCat && _lastGyroAction != "Slide") {
+                    if (!isDead &&
+                        mounted &&
+                        !isHoldingCat &&
+                        _lastGyroAction != "Slide") {
                       setState(() {
                         loadFrames("Idle");
                       });
@@ -694,7 +696,11 @@ class _PetScreenState extends State<PetScreen> {
                 children: [
                   Row(
                     children: [
-                      const Icon(Icons.restaurant, color: Colors.white, size: 16),
+                      const Icon(
+                        Icons.restaurant,
+                        color: Colors.white,
+                        size: 16,
+                      ),
                       const SizedBox(width: 8),
                       Text(
                         "Hunger: $hunger",
@@ -714,7 +720,11 @@ class _PetScreenState extends State<PetScreen> {
                   const SizedBox(height: 10),
                   Row(
                     children: [
-                      const Icon(Icons.emoji_emotions, color: Colors.white, size: 16),
+                      const Icon(
+                        Icons.emoji_emotions,
+                        color: Colors.white,
+                        size: 16,
+                      ),
                       const SizedBox(width: 8),
                       Text(
                         "Mood: $mood",
@@ -804,7 +814,7 @@ class _PetScreenState extends State<PetScreen> {
                     borderRadius: BorderRadius.circular(20),
                   ),
                   child: Text(
-                    _gyroEnabled 
+                    _gyroEnabled
                         ? "🎮 TILT PHONE to slide! • Drag cat to lift • Double tap focus"
                         : "👉 Tap cat & drag • Drag bg for camera • Double tap focus",
                     style: const TextStyle(color: Colors.white70, fontSize: 10),
@@ -819,9 +829,12 @@ class _PetScreenState extends State<PetScreen> {
                 top: 100,
                 right: 20,
                 child: Container(
-                  padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+                  padding: const EdgeInsets.symmetric(
+                    horizontal: 8,
+                    vertical: 4,
+                  ),
                   decoration: BoxDecoration(
-                    color: currentAction == "Slide" 
+                    color: currentAction == "Slide"
                         ? Colors.orange.withOpacity(0.9)
                         : Colors.green.withOpacity(0.8),
                     borderRadius: BorderRadius.circular(12),
@@ -830,18 +843,19 @@ class _PetScreenState extends State<PetScreen> {
                     mainAxisSize: MainAxisSize.min,
                     children: [
                       Icon(
-                        currentAction == "Slide" 
-                            ? Icons.speed
-                            : Icons.sensors,
-                        color: Colors.white, 
+                        currentAction == "Slide" ? Icons.speed : Icons.sensors,
+                        color: Colors.white,
                         size: 14,
                       ),
                       const SizedBox(width: 4),
                       Text(
-                        currentAction == "Slide" 
+                        currentAction == "Slide"
                             ? "SLIDING!"
                             : "Gyro: ${(_gyroX * _gyroSensitivity).toStringAsFixed(1)}",
-                        style: const TextStyle(color: Colors.white, fontSize: 10),
+                        style: const TextStyle(
+                          color: Colors.white,
+                          fontSize: 10,
+                        ),
                       ),
                     ],
                   ),
