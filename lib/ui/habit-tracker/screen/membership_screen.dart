@@ -1,5 +1,11 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'package:purewill/ui/habit-tracker/screen/community_selection_screen.dart';
+import 'package:purewill/ui/habit-tracker/screen/consultation_screen.dart';
+import 'package:purewill/ui/habit-tracker/screen/habit_screen.dart';
+import 'package:purewill/ui/habit-tracker/screen/home_screen.dart';
+import 'package:purewill/ui/habit-tracker/screen/nofap_screen.dart';
+import 'package:purewill/ui/habit-tracker/screen/pet_screen.dart';
 import 'package:purewill/ui/habit-tracker/widget/clean_bottom_navigation_bar.dart';
 import 'package:purewill/ui/membership/plan_provider.dart';
 import 'package:purewill/domain/model/plan_model.dart';
@@ -26,15 +32,32 @@ class _MembershipScreenState extends ConsumerState<MembershipScreen> {
   }
 
   void _onNavBarTap(int index) {
-    if (index == 2) {
-      Navigator.of(context).pop();
-    } else {
-      setState(() {
-        _currentIndex = index;
-      });
-      if (index == 0) {
-        Navigator.of(context).pop();
-      }
+    if (index == 0) {
+      Navigator.of(context).pushReplacement(
+        MaterialPageRoute(builder: (context) => const HomeScreen()),
+      );
+    } else if (index == 1) {
+      Navigator.of(context).pushReplacement(
+        MaterialPageRoute(builder: (context) => const PetScreen()),
+      );
+    } else if (index == 2) {
+      Navigator.of(context).pushReplacement(
+        MaterialPageRoute(builder: (context) => const HabitScreen()),
+      );
+    } else if (index == 3) {
+      Navigator.of(context).pushReplacement(
+        MaterialPageRoute(builder: (context) => const NoFapScreen()),
+      );
+    } else if (index == 4) {
+      Navigator.of(context).pushReplacement(
+        MaterialPageRoute(
+          builder: (context) => const CommunitySelectionScreen(),
+        ),
+      );
+    } else if (index == 5) {
+      Navigator.of(context).pushReplacement(
+        MaterialPageRoute(builder: (context) => const ConsultationScreen()),
+      );
     }
   }
 

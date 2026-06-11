@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:purewill/ui/habit-tracker/habit_provider.dart';
 import 'package:purewill/ui/habit-tracker/screen/community_selection_screen.dart';
+import 'package:purewill/ui/habit-tracker/screen/pet_screen.dart';
 import 'dart:ui';
 import 'package:purewill/ui/habit-tracker/widget/clean_bottom_navigation_bar.dart';
 import 'package:purewill/ui/habit-tracker/screen/habit_screen.dart';
@@ -16,7 +17,7 @@ class NoFapScreen extends ConsumerStatefulWidget {
 }
 
 class _NoFapScreenState extends ConsumerState<NoFapScreen> {
-  int _currentIndex = 2; // Set to 2 because this is the NoFap screen (center)
+  int _currentIndex = 3; // Updated index for NoFap screen
 
   int _currentStreak = 0;
   int _longestStreak = 0;
@@ -61,21 +62,26 @@ class _NoFapScreenState extends ConsumerState<NoFapScreen> {
         MaterialPageRoute(builder: (context) => const HomeScreen()),
       );
     } else if (index == 1) {
+      // Navigate to Pet Screen
+      Navigator.of(context).pushReplacement(
+        MaterialPageRoute(builder: (context) => const PetScreen()),
+      );
+    } else if (index == 2) {
       // Navigate to Habit Screen
       Navigator.of(context).pushReplacement(
         MaterialPageRoute(builder: (context) => const HabitScreen()),
       );
-    } else if (index == 2) {
+    } else if (index == 3) {
       // Already on NoFap Screen, do nothing
       return;
-    } else if (index == 3) {
+    } else if (index == 4) {
       // Navigate to Community Screen
       Navigator.of(context).pushReplacement(
         MaterialPageRoute(
           builder: (context) => const CommunitySelectionScreen(),
         ),
       );
-    } else if (index == 4) {
+    } else if (index == 5) {
       // Navigate to Consultation Screen
       Navigator.of(context).pushReplacement(
         MaterialPageRoute(builder: (context) => const ConsultationScreen()),

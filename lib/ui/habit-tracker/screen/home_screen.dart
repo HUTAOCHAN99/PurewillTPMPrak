@@ -20,6 +20,7 @@ import 'package:purewill/ui/habit-tracker/screen/add_habit_screen.dart';
 import 'package:purewill/ui/habit-tracker/screen/habit_screen.dart';
 import 'package:purewill/ui/habit-tracker/screen/consultation_screen.dart';
 import 'package:purewill/ui/habit-tracker/screen/nofap_screen.dart';
+import 'package:purewill/ui/habit-tracker/screen/pet_screen.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
 import 'package:purewill/data/services/badge_service.dart';
 import 'package:purewill/data/services/badge_notification_service.dart';
@@ -127,32 +128,37 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
   void _onNavBarTap(int index) {
     print('NavBar tapped: index $index');
 
-    if (index == 1) {
+    if (index == 0) {
+      setState(() {
+        _currentIndex = index;
+      });
+    } else if (index == 1) {
+      // Navigate to Pet Screen
+      Navigator.of(context).pushReplacement(
+        MaterialPageRoute(builder: (context) => const PetScreen()),
+      );
+    } else if (index == 2) {
       // Navigate to Habit Screen
       Navigator.of(context).pushReplacement(
         MaterialPageRoute(builder: (context) => const HabitScreen()),
       );
-    } else if (index == 2) {
+    } else if (index == 3) {
       // Navigate to NoFap Screen
       Navigator.of(context).pushReplacement(
         MaterialPageRoute(builder: (context) => const NoFapScreen()),
       );
-    } else if (index == 3) {
+    } else if (index == 4) {
       // Navigate to Community Screen
       Navigator.of(context).pushReplacement(
         MaterialPageRoute(
           builder: (context) => const CommunitySelectionScreen(),
         ),
       );
-    } else if (index == 4) {
+    } else if (index == 5) {
       // Navigate to Consultation Screen
       Navigator.of(context).pushReplacement(
         MaterialPageRoute(builder: (context) => const ConsultationScreen()),
       );
-    } else {
-      setState(() {
-        _currentIndex = index;
-      });
     }
   }
 

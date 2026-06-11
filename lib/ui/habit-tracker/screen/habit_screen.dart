@@ -7,6 +7,7 @@ import 'package:purewill/ui/habit-tracker/habit_provider.dart';
 import 'package:purewill/ui/habit-tracker/screen/community_selection_screen.dart';
 import 'package:purewill/ui/habit-tracker/screen/consultation_screen.dart';
 import 'package:purewill/ui/habit-tracker/screen/home_screen.dart';
+import 'package:purewill/ui/habit-tracker/screen/pet_screen.dart';
 import 'package:purewill/ui/habit-tracker/view_model/habit_view_model.dart';
 import 'package:purewill/ui/habit-tracker/widget/habit_screen_card.dart';
 import 'package:purewill/ui/habit-tracker/widget/clean_bottom_navigation_bar.dart';
@@ -25,7 +26,7 @@ class HabitScreen extends ConsumerStatefulWidget {
 }
 
 class _HabitScreenState extends ConsumerState<HabitScreen> {
-  final _currentIndex = 1;
+  final _currentIndex = 2;
   Map<int, LogStatus> _todayCompletionStatus = {};
 
   final badgeNotificationService = BadgeNotificationService();
@@ -73,21 +74,26 @@ class _HabitScreenState extends ConsumerState<HabitScreen> {
         MaterialPageRoute(builder: (context) => const HomeScreen()),
       );
     } else if (index == 1) {
+      // Navigate to Pet Screen
+      Navigator.of(context).pushReplacement(
+        MaterialPageRoute(builder: (context) => const PetScreen()),
+      );
+    } else if (index == 2) {
       // Already on Habit Screen, do nothing
       return;
-    } else if (index == 2) {
+    } else if (index == 3) {
       // Navigate to NoFap Screen
       Navigator.of(context).pushReplacement(
         MaterialPageRoute(builder: (context) => const NoFapScreen()),
       );
-    } else if (index == 3) {
+    } else if (index == 4) {
       // Navigate to Community Screen
       Navigator.of(context).pushReplacement(
         MaterialPageRoute(
           builder: (context) => const CommunitySelectionScreen(),
         ),
       );
-    } else if (index == 4) {
+    } else if (index == 5) {
       // Navigate to Consultation Screen
       Navigator.of(context).pushReplacement(
         MaterialPageRoute(builder: (context) => const ConsultationScreen()),

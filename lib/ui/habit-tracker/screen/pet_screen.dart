@@ -4,6 +4,11 @@ import 'package:flutter/material.dart';
 import 'package:audioplayers/audioplayers.dart';
 import 'package:flutter/foundation.dart' show kIsWeb;
 import 'package:purewill/ui/habit-tracker/screen/home_screen.dart';
+import 'package:purewill/ui/habit-tracker/screen/habit_screen.dart';
+import 'package:purewill/ui/habit-tracker/screen/nofap_screen.dart';
+import 'package:purewill/ui/habit-tracker/screen/community_selection_screen.dart';
+import 'package:purewill/ui/habit-tracker/screen/consultation_screen.dart';
+import 'package:purewill/ui/habit-tracker/widget/clean_bottom_navigation_bar.dart';
 import 'package:sensors_plus/sensors_plus.dart';
 
 class PetScreen extends StatefulWidget {
@@ -15,22 +20,58 @@ class PetScreen extends StatefulWidget {
 
 class _PetScreenState extends State<PetScreen> {
   final Random random = Random();
+  int _currentIndex = 1;
+
+  void _onNavBarTap(int index) {
+    if (index == 1) return; // Already on Pet Screen
+
+    // Clean up resources before navigating
+    gameLoop.cancel();
+    actionTimer.cancel();
+    soundTimer.cancel();
+    _accelerometerSubscription?.cancel();
+    _audioPlayer?.dispose();
+
+    if (index == 0) {
+      Navigator.of(context).pushReplacement(
+        MaterialPageRoute(builder: (context) => const HomeScreen()),
+      );
+    } else if (index == 2) {
+      Navigator.of(context).pushReplacement(
+        MaterialPageRoute(builder: (context) => const HabitScreen()),
+      );
+    } else if (index == 3) {
+      Navigator.of(context).pushReplacement(
+        MaterialPageRoute(builder: (context) => const NoFapScreen()),
+      );
+    } else if (index == 4) {
+      Navigator.of(context).pushReplacement(
+        MaterialPageRoute(
+          builder: (context) => const CommunitySelectionScreen(),
+        ),
+      );
+    } else if (index == 5) {
+      Navigator.of(context).pushReplacement(
+        MaterialPageRoute(builder: (context) => const ConsultationScreen()),
+      );
+    }
+  }
 
   // ================= AUDIO =================
   AudioPlayer? _audioPlayer;
   final bool _isWeb = kIsWeb;
 
   final List<String> _normalSounds = [
-    'voice_pack/cat-1.wav',
-    'voice_pack/cat-2.wav',
-    'voice_pack/cat-3.wav',
+    'assets/images/voice_pack/cat-1.wav',
+    'assets/images/voice_pack/cat-2.wav',
+    'assets/images/voice_pack/cat-3.wav',
   ];
 
   final Map<String, String> _specialSounds = {
-    'Hurt': 'voice_pack/cat-grapped.wav',
-    'Happy': 'voice_pack/cat-pur.wav',
-    'Sad': 'voice_pack/cat-sad.wav',
-    'Shake': 'voice_pack/cat-shake.wav',
+    'Hurt': 'assets/images/voice_pack/cat-grapped.wav',
+    'Happy': 'assets/images/voice_pack/cat-pur.wav',
+    'Sad': 'assets/images/voice_pack/cat-sad.wav',
+    'Shake': 'assets/images/voice_pack/cat-shake.wav',
   };
 
   // ================= WORLD =================
@@ -358,7 +399,7 @@ class _PetScreenState extends State<PetScreen> {
     if (actionMap.containsKey(action)) {
       frames = List.generate(
         actionMap[action]!,
-        (i) => 'assets/cat/${action}_${i + 1}.png',
+        (i) => 'assets/images/cat/${action}_${i + 1}.png',
       );
       currentFrame = 0;
       currentAction = action;
@@ -887,6 +928,10 @@ class _PetScreenState extends State<PetScreen> {
               ),
           ],
         ),
+      ),
+      bottomNavigationBar: CleanBottomNavigationBar(
+        currentIndex: _currentIndex,
+        onTap: _onNavBarTap,
       ),
     );
   }

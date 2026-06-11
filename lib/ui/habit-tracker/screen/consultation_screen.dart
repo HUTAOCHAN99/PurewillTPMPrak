@@ -2,6 +2,7 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:purewill/ui/habit-tracker/screen/doctor_detail_screen.dart';
+import 'package:purewill/ui/habit-tracker/screen/pet_screen.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
 import 'package:purewill/ui/habit-tracker/providers/chat_providers.dart';
 import 'package:purewill/ui/habit-tracker/widget/clean_bottom_navigation_bar.dart';
@@ -20,7 +21,7 @@ class ConsultationScreen extends ConsumerStatefulWidget {
 }
 
 class _ConsultationScreenState extends ConsumerState<ConsultationScreen> {
-  int _currentIndex = 4;
+  int _currentIndex = 5;
   final TextEditingController _searchController = TextEditingController();
   String _selectedCategory = 'Chatbot';
   String _searchQuery = '';
@@ -74,19 +75,23 @@ class _ConsultationScreenState extends ConsumerState<ConsultationScreen> {
       );
     } else if (index == 1) {
       Navigator.of(context).pushReplacement(
-        MaterialPageRoute(builder: (context) => const HabitScreen()),
+        MaterialPageRoute(builder: (context) => const PetScreen()),
       );
     } else if (index == 2) {
       Navigator.of(context).pushReplacement(
-        MaterialPageRoute(builder: (context) => const NoFapScreen()),
+        MaterialPageRoute(builder: (context) => const HabitScreen()),
       );
     } else if (index == 3) {
+      Navigator.of(context).pushReplacement(
+        MaterialPageRoute(builder: (context) => const NoFapScreen()),
+      );
+    } else if (index == 4) {
       Navigator.of(context).pushReplacement(
         MaterialPageRoute(
           builder: (context) => const CommunitySelectionScreen(),
         ),
       );
-    } else if (index == 4) {
+    } else if (index == 5) {
       return;
     }
   }

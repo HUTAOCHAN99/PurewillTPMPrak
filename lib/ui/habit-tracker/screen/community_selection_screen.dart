@@ -8,6 +8,8 @@ import 'package:purewill/ui/habit-tracker/screen/community_search_delegate.dart'
 import 'package:purewill/ui/habit-tracker/screen/consultation_screen.dart';
 import 'package:purewill/ui/habit-tracker/screen/habit_screen.dart';
 import 'package:purewill/ui/habit-tracker/screen/home_screen.dart';
+import 'package:purewill/ui/habit-tracker/screen/nofap_screen.dart';
+import 'package:purewill/ui/habit-tracker/screen/pet_screen.dart';
 import 'package:purewill/ui/habit-tracker/widget/clean_bottom_navigation_bar.dart';
 import 'package:purewill/ui/habit-tracker/widget/community/community_confirmation_dialog.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
@@ -29,7 +31,7 @@ class CommunitySelectionScreen extends ConsumerStatefulWidget {
 }
 
 class _CommunitySelectionScreenState extends ConsumerState<CommunitySelectionScreen> {
-  final int _currentIndex = 3; // Index untuk tab komunitas
+  final int _currentIndex = 4; // Index untuk tab komunitas
   String? _currentUserId;
   
   @override
@@ -55,20 +57,24 @@ class _CommunitySelectionScreenState extends ConsumerState<CommunitySelectionScr
     } else if (index == 1) {
       Navigator.of(context).pushReplacement(
         MaterialPageRoute(
-          builder: (context) => const HabitScreen(),
+          builder: (context) => const PetScreen(),
         ), 
       );
     } else if (index == 2) {
-      // Navigate to NoFap screen
-      // TODO: Uncomment when NoFapScreen is available
-      // Navigator.of(context).pushReplacement(
-      //   MaterialPageRoute(
-      //     builder: (context) => const NoFapScreen(),
-      //   ), 
-      // );
+      Navigator.of(context).pushReplacement(
+        MaterialPageRoute(
+          builder: (context) => const HabitScreen(),
+        ), 
+      );
     } else if (index == 3) {
-      return; // Stay in community screen
+      Navigator.of(context).pushReplacement(
+        MaterialPageRoute(
+          builder: (context) => const NoFapScreen(),
+        ), 
+      );
     } else if (index == 4) {
+      return; // Stay in community screen
+    } else if (index == 5) {
       Navigator.of(context).pushReplacement(
         MaterialPageRoute(
           builder: (context) => const ConsultationScreen(),

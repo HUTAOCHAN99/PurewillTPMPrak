@@ -40,6 +40,11 @@ class CleanBottomNavigationBar extends StatelessWidget {
               label: 'Home',
             ),
             BottomNavigationBarItem(
+              icon: Icon(Icons.pets_outlined),
+              activeIcon: Icon(Icons.pets),
+              label: 'Pet',
+            ),
+            BottomNavigationBarItem(
               icon: Icon(Icons.check_circle_outline),
               activeIcon: Icon(Icons.check_circle),
               label: 'Habit',

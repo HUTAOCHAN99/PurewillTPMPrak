@@ -101,6 +101,8 @@ flutter:
     - .env
     - assets/images/home/habit_detail/fire-flame.gif
     - assets/images/consultation/doctor.jpg
+    - assets/images/cat/
+    - assets/images/voice_pack/
     
 
   # An image asset can refer to one or more resolution-specific "variants", see
