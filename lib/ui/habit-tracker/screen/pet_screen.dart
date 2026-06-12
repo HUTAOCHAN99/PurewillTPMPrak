@@ -4,11 +4,7 @@ import 'package:flutter/material.dart';
 import 'package:audioplayers/audioplayers.dart';
 import 'package:flutter/foundation.dart' show kIsWeb;
 import 'package:purewill/ui/habit-tracker/screen/home_screen.dart';
-import 'package:purewill/ui/habit-tracker/screen/habit_screen.dart';
-import 'package:purewill/ui/habit-tracker/screen/nofap_screen.dart';
-import 'package:purewill/ui/habit-tracker/screen/community_selection_screen.dart';
-import 'package:purewill/ui/habit-tracker/screen/consultation_screen.dart';
-import 'package:purewill/ui/habit-tracker/widget/clean_bottom_navigation_bar.dart';
+import 'package:vector_math/vector_math_64.dart' show Vector3;
 import 'package:sensors_plus/sensors_plus.dart';
 
 class PetScreen extends StatefulWidget {
@@ -20,61 +16,21 @@ class PetScreen extends StatefulWidget {
 
 class _PetScreenState extends State<PetScreen> {
   final Random random = Random();
-  int _currentIndex = 1;
-
-  void _onNavBarTap(int index) {
-    if (index == 1) return; // Already on Pet Screen
-
-    // Clean up resources before navigating
-    gameLoop.cancel();
-    actionTimer.cancel();
-    soundTimer.cancel();
-    _accelerometerSubscription?.cancel();
-    _audioPlayer?.dispose();
-
-    if (index == 0) {
-      Navigator.of(context).pushReplacement(
-        MaterialPageRoute(builder: (context) => const HomeScreen()),
-      );
-    } else if (index == 2) {
-      Navigator.of(context).pushReplacement(
-        MaterialPageRoute(builder: (context) => const HabitScreen()),
-      );
-    } else if (index == 3) {
-      Navigator.of(context).pushReplacement(
-        MaterialPageRoute(builder: (context) => const NoFapScreen()),
-      );
-    } else if (index == 4) {
-      Navigator.of(context).pushReplacement(
-        MaterialPageRoute(
-          builder: (context) => const CommunitySelectionScreen(),
-        ),
-      );
-    } else if (index == 5) {
-      Navigator.of(context).pushReplacement(
-        MaterialPageRoute(builder: (context) => const ConsultationScreen()),
-      );
-    }
-  }
-
-  // ================= AUDIO =================
   AudioPlayer? _audioPlayer;
   final bool _isWeb = kIsWeb;
 
   final List<String> _normalSounds = [
-    'assets/images/voice_pack/cat-1.wav',
-    'assets/images/voice_pack/cat-2.wav',
-    'assets/images/voice_pack/cat-3.wav',
+    'voice_pack/cat-1.wav',
+    'voice_pack/cat-2.wav',
+    'voice_pack/cat-3.wav',
   ];
 
   final Map<String, String> _specialSounds = {
-    'Hurt': 'assets/images/voice_pack/cat-grapped.wav',
-    'Happy': 'assets/images/voice_pack/cat-pur.wav',
-    'Sad': 'assets/images/voice_pack/cat-sad.wav',
-    'Shake': 'assets/images/voice_pack/cat-shake.wav',
+    'Hurt': 'voice_pack/cat-grapped.wav',
+    'Happy': 'voice_pack/cat-pur.wav',
+    'Sad': 'voice_pack/cat-sad.wav',
+    'Shake': 'voice_pack/cat-shake.wav',
   };
-
-  // ================= WORLD =================
   double catX = 0;
   double cameraX = 0;
   double screenWidth = 0;
@@ -82,25 +38,17 @@ class _PetScreenState extends State<PetScreen> {
   double worldWidth = 0;
 
   bool moveRight = true;
-
-  // ================= GYROSCOPE =================
   StreamSubscription<AccelerometerEvent>? _accelerometerSubscription;
   double _gyroX = 0;
   bool _gyroEnabled = true;
   double _gyroSensitivity = 0.5;
   double _targetCameraX = 0;
   String _lastGyroAction = "";
-
-  // ================= HOLD SYSTEM =================
   bool isHoldingCat = false;
   double holdOffsetY = 0;
-
-  // ================= CAMERA DRAG =================
   bool isDragging = false;
   double dragStartX = 0;
   double cameraStartX = 0;
-
-  // ================= ANIMATION =================
   int currentFrame = 0;
   List<String> frames = [];
   String currentAction = "Idle";
@@ -117,13 +65,9 @@ class _PetScreenState extends State<PetScreen> {
   };
 
   final List<String> randomActions = ["Idle", "Walk", "Run"];
-
-  // ================= STATE =================
   bool isDead = false;
   int hunger = 100;
   int mood = 100;
-
-  // ================= TIMER =================
   late Timer gameLoop;
   late Timer actionTimer;
   late Timer soundTimer;
@@ -141,8 +85,6 @@ class _PetScreenState extends State<PetScreen> {
       setState(() {
         if (!isDead && frames.isNotEmpty) {
           currentFrame = (currentFrame + 1) % frames.length;
-
-          // GERAK (disable saat dipegang)
           if (!isHoldingCat) {
             if (currentAction == "Walk") {
               catX += moveRight ? 3 : -3;
@@ -152,14 +94,10 @@ class _PetScreenState extends State<PetScreen> {
               catX += moveRight ? 8 : -8;
             }
           }
-
-          // GYROSCOPE CONTROL - Gerakkan kucing dengan animasi slide
           if (_gyroEnabled && !isDragging && !isHoldingCat && !isDead) {
-            // BALIKAN arah gyro (miring kanan = ke kanan)
             double gyroMove = -(_gyroX * _gyroSensitivity * 10);
 
             if (gyroMove.abs() > 0.5) {
-              // Aktifkan animasi slide saat gyro bergerak
               if (_lastGyroAction != "Slide") {
                 loadFrames("Slide");
                 _lastGyroAction = "Slide";
@@ -167,15 +105,12 @@ class _PetScreenState extends State<PetScreen> {
               }
 
               catX += gyroMove;
-
-              // Ubah arah berdasarkan gerakan gyro
               if (gyroMove > 0) {
                 moveRight = true;
               } else if (gyroMove < 0) {
                 moveRight = false;
               }
             } else {
-              // Kembali ke idle atau walk saat gyro berhenti
               if (_lastGyroAction == "Slide" && currentAction == "Slide") {
                 if (!isDead && mounted) {
                   loadFrames("Idle");
@@ -183,28 +118,22 @@ class _PetScreenState extends State<PetScreen> {
                 }
               }
             }
-
-            // Batasi posisi
             catX = catX.clamp(0, worldWidth - 200);
-
-            // Update target kamera
             _targetCameraX = catX - screenWidth / 2 + 100;
           }
-
-          // BATAS
           if (catX >= worldWidth - 200) {
             catX = worldWidth - 200;
             moveRight = false;
-            if (!isHoldingCat && currentAction != "Slide")
+            if (!isHoldingCat && currentAction != "Slide") {
               _playRandomShortSound();
+            }
           } else if (catX <= 0) {
             catX = 0;
             moveRight = true;
-            if (!isHoldingCat && currentAction != "Slide")
+            if (!isHoldingCat && currentAction != "Slide") {
               _playRandomShortSound();
+            }
           }
-
-          // CAMERA FOLLOW
           if (!isDragging) {
             if (_gyroEnabled && !isHoldingCat) {
               cameraX += (_targetCameraX - cameraX) * 0.15;
@@ -215,13 +144,9 @@ class _PetScreenState extends State<PetScreen> {
           }
 
           cameraX = cameraX.clamp(0, worldWidth - screenWidth);
-
-          // GRAVITY sederhana
           if (!isHoldingCat) {
             holdOffsetY = max(0, holdOffsetY - 10);
           }
-
-          // STATUS TURUN
           if (currentFrame % 10 == 0 && currentAction != "Slide") {
             hunger = max(0, hunger - 1);
             mood = max(0, mood - 1);
@@ -229,8 +154,6 @@ class _PetScreenState extends State<PetScreen> {
             hunger = max(0, hunger - 2);
             mood = max(0, mood - 1);
           }
-
-          // KONDISI
           if (hunger <= 0 && !isDead) {
             isDead = true;
             loadFrames("Dead");
@@ -262,7 +185,6 @@ class _PetScreenState extends State<PetScreen> {
     });
   }
 
-  // ================= GYROSCOPE INIT =================
   void _initGyroscope() {
     if (_isWeb) {
       _gyroEnabled = false;
@@ -271,10 +193,7 @@ class _PetScreenState extends State<PetScreen> {
 
     _accelerometerSubscription = accelerometerEventStream().listen(
       (AccelerometerEvent event) {
-        // BALIKAN arah dengan negatif (miring kanan = positif)
         _gyroX = -event.x.clamp(-2, 2).toDouble();
-
-        // Deadzone
         if (_gyroX.abs() < 0.1) {
           _gyroX = 0;
         }
@@ -360,7 +279,6 @@ class _PetScreenState extends State<PetScreen> {
     );
   }
 
-  // ================= AUDIO =================
   void _initAudio() {
     _audioPlayer = AudioPlayer();
     _audioPlayer?.setVolume(0.8);
@@ -394,7 +312,6 @@ class _PetScreenState extends State<PetScreen> {
     }
   }
 
-  // ================= LOGIC =================
   void loadFrames(String action) {
     if (actionMap.containsKey(action)) {
       frames = List.generate(
@@ -465,6 +382,8 @@ class _PetScreenState extends State<PetScreen> {
     soundTimer.cancel();
     await _accelerometerSubscription?.cancel();
     await _audioPlayer?.stop();
+
+    if (!mounted) return;
 
     Navigator.of(
       context,
@@ -540,7 +459,6 @@ class _PetScreenState extends State<PetScreen> {
         },
         child: Stack(
           children: [
-            // ================= BACKGROUND =================
             Positioned(
               left: -cameraX,
               top: 0,
@@ -551,8 +469,6 @@ class _PetScreenState extends State<PetScreen> {
                 fit: BoxFit.cover,
               ),
             ),
-
-            // ================= SLIDE TRAIL EFFECT =================
             if (currentAction == "Slide" && _gyroEnabled)
               Positioned(
                 bottom: catBottom + holdOffsetY - 10,
@@ -569,7 +485,7 @@ class _PetScreenState extends State<PetScreen> {
                         end: Alignment.centerRight,
                         colors: [
                           Colors.transparent,
-                          Colors.white.withOpacity(0.5),
+                          Colors.white.withValues(alpha: 0.5),
                           Colors.transparent,
                         ],
                       ),
@@ -578,8 +494,6 @@ class _PetScreenState extends State<PetScreen> {
                   ),
                 ),
               ),
-
-            // ================= SHADOW =================
             if (!isHoldingCat && holdOffsetY == 0 && currentAction != "Slide")
               Positioned(
                 bottom: catBottom - 10,
@@ -588,13 +502,11 @@ class _PetScreenState extends State<PetScreen> {
                   width: 120,
                   height: 20,
                   decoration: BoxDecoration(
-                    color: Colors.black.withOpacity(0.3),
+                    color: Colors.black.withValues(alpha: 0.3),
                     borderRadius: BorderRadius.circular(50),
                   ),
                 ),
               ),
-
-            // ================= CAT (DRAGGABLE) =================
             Positioned(
               bottom: catBottom + holdOffsetY,
               left: catX - cameraX,
@@ -637,9 +549,9 @@ class _PetScreenState extends State<PetScreen> {
                 child: Transform(
                   alignment: Alignment.center,
                   transform: Matrix4.identity()
-                    ..translate(100.0)
-                    ..scale(moveRight ? 1.0 : -1.0, 1.0)
-                    ..translate(-100.0),
+                    ..translateByVector3(Vector3(100.0, 0.0, 0.0))
+                    ..scaleByVector3(Vector3(moveRight ? 1.0 : -1.0, 1.0, 1.0))
+                    ..translateByVector3(Vector3(-100.0, 0.0, 0.0)),
                   child: Image.asset(
                     frames.isNotEmpty ? frames[currentFrame] : '',
                     width: 200,
@@ -649,18 +561,16 @@ class _PetScreenState extends State<PetScreen> {
                 ),
               ),
             ),
-
-            // ================= BACK BUTTON =================
             Positioned(
               top: 40,
               left: 20,
               child: Container(
                 decoration: BoxDecoration(
-                  color: Colors.black.withOpacity(0.6),
+                  color: Colors.black.withValues(alpha: 0.6),
                   borderRadius: BorderRadius.circular(30),
                   boxShadow: [
                     BoxShadow(
-                      color: Colors.black.withOpacity(0.3),
+                      color: Colors.black.withValues(alpha: 0.3),
                       blurRadius: 5,
                       offset: const Offset(0, 2),
                     ),
@@ -673,18 +583,16 @@ class _PetScreenState extends State<PetScreen> {
                 ),
               ),
             ),
-
-            // ================= GYRO CONTROL BUTTON =================
             Positioned(
               top: 40,
               right: 20,
               child: Container(
                 decoration: BoxDecoration(
-                  color: Colors.black.withOpacity(0.6),
+                  color: Colors.black.withValues(alpha: 0.6),
                   borderRadius: BorderRadius.circular(30),
                   boxShadow: [
                     BoxShadow(
-                      color: Colors.black.withOpacity(0.3),
+                      color: Colors.black.withValues(alpha: 0.3),
                       blurRadius: 5,
                       offset: const Offset(0, 2),
                     ),
@@ -709,8 +617,6 @@ class _PetScreenState extends State<PetScreen> {
                 ),
               ),
             ),
-
-            // ================= RESURRECT BUTTON =================
             if (isDead)
               Positioned(
                 top: 60,
@@ -727,8 +633,6 @@ class _PetScreenState extends State<PetScreen> {
                   ),
                 ),
               ),
-
-            // ================= UI (Hunger & Mood) =================
             Positioned(
               top: 40,
               left: 80,
@@ -785,8 +689,6 @@ class _PetScreenState extends State<PetScreen> {
                 ],
               ),
             ),
-
-            // ================= ACTION BUTTONS =================
             Positioned(
               bottom: 30,
               left: 0,
@@ -838,8 +740,6 @@ class _PetScreenState extends State<PetScreen> {
                 ],
               ),
             ),
-
-            // ================= HINT TEXT =================
             Positioned(
               bottom: 100,
               left: 0,
@@ -851,7 +751,7 @@ class _PetScreenState extends State<PetScreen> {
                     vertical: 6,
                   ),
                   decoration: BoxDecoration(
-                    color: Colors.black.withOpacity(0.5),
+                    color: Colors.black.withValues(alpha: 0.5),
                     borderRadius: BorderRadius.circular(20),
                   ),
                   child: Text(
@@ -863,8 +763,6 @@ class _PetScreenState extends State<PetScreen> {
                 ),
               ),
             ),
-
-            // ================= GYRO ACTIVE INDICATOR =================
             if (_gyroEnabled && !isHoldingCat && !isDead)
               Positioned(
                 top: 100,
@@ -876,8 +774,8 @@ class _PetScreenState extends State<PetScreen> {
                   ),
                   decoration: BoxDecoration(
                     color: currentAction == "Slide"
-                        ? Colors.orange.withOpacity(0.9)
-                        : Colors.green.withOpacity(0.8),
+                        ? Colors.orange.withValues(alpha: 0.9)
+                        : Colors.green.withValues(alpha: 0.8),
                     borderRadius: BorderRadius.circular(12),
                   ),
                   child: Row(
@@ -902,8 +800,6 @@ class _PetScreenState extends State<PetScreen> {
                   ),
                 ),
               ),
-
-            // ================= DRAG INDICATOR =================
             if (isHoldingCat)
               Positioned(
                 top: 20,
@@ -916,7 +812,7 @@ class _PetScreenState extends State<PetScreen> {
                       vertical: 6,
                     ),
                     decoration: BoxDecoration(
-                      color: Colors.black.withOpacity(0.7),
+                      color: Colors.black.withValues(alpha: 0.7),
                       borderRadius: BorderRadius.circular(20),
                     ),
                     child: const Text(
@@ -928,10 +824,6 @@ class _PetScreenState extends State<PetScreen> {
               ),
           ],
         ),
-      ),
-      bottomNavigationBar: CleanBottomNavigationBar(
-        currentIndex: _currentIndex,
-        onTap: _onNavBarTap,
       ),
     );
   }

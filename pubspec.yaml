@@ -61,6 +61,7 @@ dependencies:
   clipboard: ^0.1.3 
   sensors_plus: ^7.0.0
   audioplayers: ^6.6.0
+  vector_math: ^2.2.0
 
 dev_dependencies:
   flutter_test:
@@ -102,7 +103,7 @@ flutter:
     - assets/images/home/habit_detail/fire-flame.gif
     - assets/images/consultation/doctor.jpg
     - assets/images/cat/
-    - assets/images/voice_pack/
+    - assets/voice_pack/
     
 
   # An image asset can refer to one or more resolution-specific "variants", see
