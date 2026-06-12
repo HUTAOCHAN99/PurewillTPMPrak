@@ -3,6 +3,8 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:purewill/data/services/community/report_service.dart';
 import 'package:purewill/ui/admin/admin_reports_screen.dart';
+import 'package:purewill/ui/admin/manage_doctors_screen.dart';
+import 'package:purewill/ui/admin/doctor_activation_requests_screen.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
 import 'package:purewill/data/services/doctor/doctor_activation_service.dart';
 
@@ -501,25 +503,35 @@ class AdminDashboardScreenState extends ConsumerState<AdminDashboardScreen> {
               },
             ),
             _buildQuickActionCard(
-              title: 'Manage Users',
-              icon: Icons.people,
-              color: Colors.blue,
+              title: 'Manage Doctors',
+              icon: Icons.medical_services,
+              color: Colors.green,
               onTap: () {
-                _showComingSoonSnackbar(context, 'User management');
+                Navigator.push(
+                  context,
+                  MaterialPageRoute(
+                    builder: (context) => const ManageDoctorsScreen(),
+                  ),
+                );
               },
             ),
             _buildQuickActionCard(
               title: 'Doctor Requests',
-              icon: Icons.medical_services,
-              color: Colors.green,
+              icon: Icons.pending_actions,
+              color: Colors.orange,
               onTap: () {
-                _showComingSoonSnackbar(context, 'Doctor Requests');
+                Navigator.push(
+                  context,
+                  MaterialPageRoute(
+                    builder: (context) => const DoctorActivationRequestsScreen(),
+                  ),
+                );
               },
             ),
             _buildQuickActionCard(
               title: 'Settings',
               icon: Icons.settings,
-              color: Colors.orange,
+              color: Colors.blue,
               onTap: () {
                 _showComingSoonSnackbar(context, 'Settings');
               },

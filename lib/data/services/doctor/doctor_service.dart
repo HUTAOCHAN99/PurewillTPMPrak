@@ -145,6 +145,8 @@ class DoctorService {
   // Update doctor profile
   Future<bool> updateDoctorProfile({
     required String userId,
+    String? fullName,
+    String? avatarUrl,
     String? specialization,
     String? experience,
     String? education,
@@ -154,9 +156,22 @@ class DoctorService {
     List<String>? availableDays,
     String? startTime,
     String? endTime,
+    bool? isAvailable,
   }) async {
     try {
-      // Check if doctor profile exists
+      // 1. Update Profile (Full Name & Avatar)
+      if (fullName != null || avatarUrl != null) {
+        final profileUpdate = <String, dynamic>{};
+        if (fullName != null) profileUpdate['full_name'] = fullName;
+        if (avatarUrl != null) profileUpdate['avatar_url'] = avatarUrl;
+        
+        await _supabase
+            .from('profiles')
+            .update(profileUpdate)
+            .eq('user_id', userId);
+      }
+
+      // 2. Update Doctor Profile
       final existing = await _supabase
           .from('doctor_profiles')
           .select()
@@ -176,6 +191,7 @@ class DoctorService {
       if (availableDays != null) updateData['available_days'] = availableDays;
       if (startTime != null) updateData['start_time'] = startTime;
       if (endTime != null) updateData['end_time'] = endTime;
+      if (isAvailable != null) updateData['is_available'] = isAvailable;
 
       if (existing == null) {
         // Create new doctor profile
@@ -195,6 +211,69 @@ class DoctorService {
       return true;
     } catch (e) {
       dev.log('Error updating doctor profile: $e', name: 'DOCTOR_SERVICE');
+      return false;
+    }
+  }
+
+  // Add new doctor manually
+  Future<bool> addDoctor({
+    required String fullName,
+    required String specialization,
+    String? experience,
+    String? education,
+    String? hospital,
+    required String consultationFee,
+    String? bio,
+    String? avatarUrl,
+  }) async {
+    try {
+      // Generate a unique ID for the manual doctor
+      final userId = 'manual_doctor_${DateTime.now().microsecondsSinceEpoch}';
+      
+      // 1. Create Profile
+      await _supabase.from('profiles').insert({
+        'user_id': userId,
+        'full_name': fullName,
+        'avatar_url': avatarUrl,
+        'role': 'doctor',
+        'created_at': DateTime.now().toIso8601String(),
+      });
+
+      // 2. Create Doctor Profile
+      await _supabase.from('doctor_profiles').insert({
+        'user_id': userId,
+        'specialization': specialization,
+        'experience': experience,
+        'education': education,
+        'hospital': hospital,
+        'consultation_fee': consultationFee,
+        'bio': bio,
+        'is_available': true,
+        'rating': 0.0,
+        'total_sessions': 0,
+        'created_at': DateTime.now().toIso8601String(),
+        'updated_at': DateTime.now().toIso8601String(),
+      });
+
+      return true;
+    } catch (e) {
+      dev.log('Error adding doctor: $e', name: 'DOCTOR_SERVICE');
+      return false;
+    }
+  }
+
+  // Delete doctor
+  Future<bool> deleteDoctor(String userId) async {
+    try {
+      // 1. Delete doctor profile first (FK constraint)
+      await _supabase.from('doctor_profiles').delete().eq('user_id', userId);
+      
+      // 2. Delete profile
+      await _supabase.from('profiles').delete().eq('user_id', userId);
+      
+      return true;
+    } catch (e) {
+      dev.log('Error deleting doctor: $e', name: 'DOCTOR_SERVICE');
       return false;
     }
   }
